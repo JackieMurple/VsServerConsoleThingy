@@ -25,6 +25,13 @@ namespace VsServerConsoleThingy
             ValPth();
         }
 
+        private class PathsConfig
+        {
+            public string? InstallationPath { get; set; }
+            public string? ServerExecutablePath { get; set; }
+        }
+
+
         private void DetPth()
         {
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
@@ -92,7 +99,7 @@ namespace VsServerConsoleThingy
             var window = new Window();
             var folderResult = await window.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
             {
-                Title = "Select Vintage Story Installation Folder",
+                Title = "Select Vintage Story Server Installation Folder",
                 AllowMultiple = false
             });
 
@@ -107,14 +114,15 @@ namespace VsServerConsoleThingy
                 }
                 else
                 {
-                    throw new Exception("Selected folder is not a valid Vintage Story installation.");
+                    throw new Exception("Selected folder does not contain VintagestoryServer executable.");
                 }
             }
             else
             {
-                throw new Exception("Vintage Story installation folder not selected.");
+                throw new Exception("No folder selected for Vintage Story Server installation.");
             }
         }
+
 
         private static bool ValSelPth(string path)
         {
@@ -124,27 +132,35 @@ namespace VsServerConsoleThingy
 
         private void SvPth()
         {
-            var paths = new
+            var paths = new PathsConfig
             {
-                InstPth,
-                ExecPth
+                InstallationPath = InstPth,
+                ServerExecutablePath = ExecPth
             };
 
             string json = JsonSerializer.Serialize(paths);
             File.WriteAllText(ConfigFileName, json);
         }
 
+
         private void LdPth()
         {
             if (File.Exists(ConfigFileName))
             {
-                string json = File.ReadAllText(ConfigFileName);
-                var paths = JsonSerializer.Deserialize<dynamic>(json);
-
-                if (paths != null)
+                try
                 {
-                    InstPth = paths.InstallationPath?.ToString();
-                    ExecPth = paths.ServerExecutablePath?.ToString();
+                    string json = File.ReadAllText(ConfigFileName);
+                    var paths = JsonSerializer.Deserialize<PathsConfig>(json);
+
+                    if (paths != null)
+                    {
+                        InstPth = paths.InstallationPath;
+                        ExecPth = paths.ServerExecutablePath;
+                    }
+                }
+                catch (JsonException ex)
+                {
+                    Console.WriteLine($"Error loading paths: {ex.Message}");
                 }
             }
         }

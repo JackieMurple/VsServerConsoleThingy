@@ -41,8 +41,7 @@ namespace VsServerConsoleThingy
         public MainWindow()
         {
             InitializeComponent();
-            _ = InitVSPath();
-            InitAsyc();
+            _ = InitAsyc();
             txtConsole = this.FindControl<Control>("_txtConsole");
 
             if (txtConsole is TextBox textBox)
@@ -82,19 +81,12 @@ namespace VsServerConsoleThingy
             lstPlayers.ItemsSource = currentPlayers;
             AdminCheck.Click += TxtBx;
             Consoleswap(restartSettings.UseRichTextBox);
-            _ = InitSrvSt();
         }
 
-        private async void InitAsyc()
+        private async Task InitAsyc()
         {
             await InitVSPath();
             await LdAnn();
-            await InitSrvSt();
-            await LdAnn();
-        }
-        private async Task InitSrvSt()
-        {
-            await InitVSPath();
             StartServer();
         }
         private void TxtBx(object? sender, RoutedEventArgs e)
@@ -111,7 +103,7 @@ namespace VsServerConsoleThingy
             try
             {
                 vsPaths = new VSPths();
-                if (string.IsNullOrEmpty(vsPaths.InstPth))
+                if (string.IsNullOrEmpty(vsPaths.InstPth) || string.IsNullOrEmpty(vsPaths.ExecPth))
                 {
                     await SelDialog();
                 }
@@ -120,21 +112,19 @@ namespace VsServerConsoleThingy
             {
                 TxtXChng($"Error initializing VSPths: {ex.Message}" + Environment.NewLine, Colors.Red);
                 vsPaths = null;
-                await SelDialog();
             }
         }
 
-        private async Task<string?> AskDir()
+        private async Task<string?> AskDir(string title)
         {
             var topLevel = TopLevel.GetTopLevel(this);
             if (topLevel != null)
             {
                 var folders = await topLevel.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
                 {
-                    Title = "Select Vintage Story Data Directory",
+                    Title = title,
                     AllowMultiple = false
                 });
-
                 if (folders.Count > 0)
                 {
                     return folders[0].Path.LocalPath;
@@ -143,30 +133,33 @@ namespace VsServerConsoleThingy
             return null;
         }
 
-
+        public enum PthSelTyp
+        {
+            VintageStoryInstallation,
+            AnnouncerConfig
+        }
         private async Task SelDialog()
         {
             var messageBox = MessageBoxManager.GetMessageBoxStandard(
                 new MessageBoxStandardParams
                 {
-                    ContentTitle = "Vintage Story Paths Not Found",
-                    ContentMessage = "The Vintage Story installation couldn't be found automatically. Would you like to select it manually?",
+                    ContentTitle = "Vintage Story Server Executable Not Found",
+                    ContentMessage = "The Vintage Story Server executable couldn't be found automatically. Would you like to select the installation folder manually?",
                     ButtonDefinitions = ButtonEnum.YesNo
                 });
-
             var result = await messageBox.ShowAsync();
-
             if (result == ButtonResult.Yes)
             {
                 try
                 {
-                    if (vsPaths != null)
+                    if (vsPaths == null)
                     {
-                        await vsPaths.ManPth();
+                        vsPaths = new VSPths();
                     }
-                    else
+                    await vsPaths.ManPth();
+                    if (string.IsNullOrEmpty(vsPaths.InstPth) || string.IsNullOrEmpty(vsPaths.ExecPth))
                     {
-                        TxtXChng("Error: VSPths is not initialized." + Environment.NewLine, Colors.Red);
+                        throw new Exception("Invalid Vintage Story Server installation folder selected.");
                     }
                 }
                 catch (Exception ex)
@@ -174,20 +167,18 @@ namespace VsServerConsoleThingy
                     await MessageBoxManager.GetMessageBoxStandard(
                         new MessageBoxStandardParams
                         {
-                            ContentTitle = "Error",
+                            ContentTitle = "Error - Vintage Story Server Executable",
                             ContentMessage = ex.Message,
                             ButtonDefinitions = ButtonEnum.Ok
                         }).ShowAsync();
-                    Close();
+                    vsPaths = null;
                 }
             }
             else
             {
-                Close();
+                vsPaths = null;
             }
         }
-
-
 
         private void TxtXChng(string text, Color color)
         {
@@ -349,7 +340,7 @@ namespace VsServerConsoleThingy
             }
         }
 
-        private void ChckExst(string path)
+        private static void ChckExst(string path)
         {
             string? directory = Path.GetDirectoryName(path);
             if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
@@ -384,38 +375,21 @@ namespace VsServerConsoleThingy
                 string? configDir = Path.GetDirectoryName(configPath);
                 if (configDir == null)
                 {
-                    TxtXChng("Invalid configuration path." + Environment.NewLine, Colors.Red);
+                    TxtXChng("Invalid configuration path for announcer.json." + Environment.NewLine, Colors.Red);
                     return;
                 }
 
                 if (!Directory.Exists(configDir))
                 {
-                    var messageBox = MessageBoxManager.GetMessageBoxStandard(
-                        new MessageBoxStandardParams
-                        {
-                            ContentTitle = "Directory Not Found",
-                            ContentMessage = "The default configuration directory was not found. Would you like to select it manually?",
-                            ButtonDefinitions = ButtonEnum.YesNo
-                        });
-
-                    var result = await messageBox.ShowAsync();
-
-                    if (result == ButtonResult.Yes)
-                    {
-                        string? selectedDir = await AskDir();
-                        if (selectedDir != null)
-                        {
-                            configPath = Path.Combine(selectedDir, "ModConfig", "AnnouncerConfig.json");
-                        }
-                        else
-                        {
-                            TxtXChng("No directory selected. Using default path." + Environment.NewLine, Colors.Yellow);
-                        }
-                    }
+                    Directory.CreateDirectory(configDir);
                 }
 
-                ChckExst(configPath);
-                if (File.Exists(configPath))
+                if (!File.Exists(configPath))
+                {
+                    announcements.Add(new Announcement { Hour = 6, Minute = 0, Message = "placeholder announcement" });
+                    await SvAnn();
+                }
+                else
                 {
                     string json = await File.ReadAllTextAsync(configPath);
                     var loadedAnnouncements = JsonSerializer.Deserialize<List<Announcement>>(json, jsonOptions);
@@ -425,11 +399,7 @@ namespace VsServerConsoleThingy
                         announcements.AddRange(loadedAnnouncements);
                     }
                 }
-                else
-                {
-                    announcements.Add(new Announcement { Hour = 6, Minute = 0, Message = "placeholder announcement" });
-                    await SvAnn();
-                }
+
                 UpAnnLst();
             }
             catch (Exception ex)
