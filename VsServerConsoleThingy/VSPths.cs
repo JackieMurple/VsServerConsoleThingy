@@ -8,36 +8,36 @@ using System.Runtime.InteropServices;
 
 namespace VsServerConsoleThingy
 {
-    public class VintageStoryPaths
+    public class VSPths
     {
-        public string? InstallationPath { get; private set; }
-        public string? ServerExecutablePath { get; private set; }
+        public string? InstPth { get; private set; }
+        public string? ExecPth { get; private set; }
 
         private const string ConfigFileName = "vspaths.json";
 
-        public VintageStoryPaths()
+        public VSPths()
         {
-            LoadSavedPaths();
-            if (string.IsNullOrEmpty(InstallationPath))
+            LdPth();
+            if (string.IsNullOrEmpty(InstPth))
             {
-                DetectPaths();
+                DetPth();
             }
-            ValidatePaths();
+            ValPth();
         }
 
-        private void DetectPaths()
+        private void DetPth()
         {
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
-                DetectWindowsPaths();
+                DetWinPth();
             }
             else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
             {
-                DetectLinuxPaths();
+                DetLinPth();
             }
         }
 
-        private void DetectWindowsPaths()
+        private void DetWinPth()
         {
             string[] potentialPaths =
             {
@@ -50,14 +50,14 @@ namespace VsServerConsoleThingy
             {
                 if (Directory.Exists(path) && File.Exists(Path.Combine(path, "VintagestoryServer.exe")))
                 {
-                    InstallationPath = path;
-                    ServerExecutablePath = Path.Combine(path, "VintagestoryServer.exe");
+                    InstPth = path;
+                    ExecPth = Path.Combine(path, "VintagestoryServer.exe");
                     return;
                 }
             }
         }
 
-        private void DetectLinuxPaths()
+        private void DetLinPth()
         {
             string[] potentialPaths =
             {
@@ -70,24 +70,24 @@ namespace VsServerConsoleThingy
             {
                 if (Directory.Exists(path) && File.Exists(Path.Combine(path, "VintagestoryServer")))
                 {
-                    InstallationPath = path;
-                    ServerExecutablePath = Path.Combine(path, "VintagestoryServer");
+                    InstPth = path;
+                    ExecPth = Path.Combine(path, "VintagestoryServer");
                     return;
                 }
             }
         }
 
-        private void ValidatePaths()
+        private void ValPth()
         {
-            if (string.IsNullOrEmpty(InstallationPath) || !Directory.Exists(InstallationPath) ||
-                string.IsNullOrEmpty(ServerExecutablePath) || !File.Exists(ServerExecutablePath))
+            if (string.IsNullOrEmpty(InstPth) || !Directory.Exists(InstPth) ||
+                string.IsNullOrEmpty(ExecPth) || !File.Exists(ExecPth))
             {
-                InstallationPath = null;
-                ServerExecutablePath = null;
+                InstPth = null;
+                ExecPth = null;
             }
         }
 
-        public async Task ManuallySelectPaths()
+        public async Task ManPth()
         {
             var window = new Window();
             var folderResult = await window.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
@@ -99,11 +99,11 @@ namespace VsServerConsoleThingy
             if (folderResult.Count > 0)
             {
                 string selectedPath = folderResult[0].Path.LocalPath;
-                if (ValidateSelectedPath(selectedPath))
+                if (ValSelPth(selectedPath))
                 {
-                    InstallationPath = selectedPath;
-                    ServerExecutablePath = Path.Combine(InstallationPath, RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "VintagestoryServer.exe" : "VintagestoryServer");
-                    SavePaths();
+                    InstPth = selectedPath;
+                    ExecPth = Path.Combine(InstPth, RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "VintagestoryServer.exe" : "VintagestoryServer");
+                    SvPth();
                 }
                 else
                 {
@@ -116,25 +116,25 @@ namespace VsServerConsoleThingy
             }
         }
 
-        private static bool ValidateSelectedPath(string path)
+        private static bool ValSelPth(string path)
         {
             return Directory.Exists(path) &&
                    File.Exists(Path.Combine(path, RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "VintagestoryServer.exe" : "VintagestoryServer"));
         }
 
-        private void SavePaths()
+        private void SvPth()
         {
             var paths = new
             {
-                InstallationPath,
-                ServerExecutablePath
+                InstPth,
+                ExecPth
             };
 
             string json = JsonSerializer.Serialize(paths);
             File.WriteAllText(ConfigFileName, json);
         }
 
-        private void LoadSavedPaths()
+        private void LdPth()
         {
             if (File.Exists(ConfigFileName))
             {
@@ -143,8 +143,8 @@ namespace VsServerConsoleThingy
 
                 if (paths != null)
                 {
-                    InstallationPath = paths.InstallationPath?.ToString();
-                    ServerExecutablePath = paths.ServerExecutablePath?.ToString();
+                    InstPth = paths.InstallationPath?.ToString();
+                    ExecPth = paths.ServerExecutablePath?.ToString();
                 }
             }
         }

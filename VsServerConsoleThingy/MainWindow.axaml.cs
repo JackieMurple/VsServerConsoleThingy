@@ -17,6 +17,7 @@ using System.Threading.Tasks;
 using MsBox.Avalonia.Dto;
 using MsBox.Avalonia.Enums;
 using MsBox.Avalonia;
+using Avalonia.Platform.Storage;
 
 
 namespace VsServerConsoleThingy
@@ -24,10 +25,9 @@ namespace VsServerConsoleThingy
 
     public partial class MainWindow : Window
     {
-        private VintageStoryPaths? vsPaths;
+        private VSPths? vsPaths;
         private readonly List<Announcement> announcements = [];
-        private readonly string configPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "vintagestorydata", "ModConfig", "AnnouncerConfig.json");
-        private readonly RestartSettings restartSettings = new();
+        private string configPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "vintagestorydata", "ModConfig", "AnnouncerConfig.json"); private readonly RestartSettings restartSettings = new();
         private readonly string restartSettingsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "vintagestorydata", "ModConfig", "RestartSettings.json");
         private readonly DispatcherTimer restartTimer = new();
         private readonly ObservableCollection<string> currentPlayers = [];
@@ -41,7 +41,8 @@ namespace VsServerConsoleThingy
         public MainWindow()
         {
             InitializeComponent();
-            _ = InitializeVintagestoryPathsAsync();
+            _ = InitVSPath();
+            InitAsyc();
             txtConsole = this.FindControl<Control>("_txtConsole");
 
             if (txtConsole is TextBox textBox)
@@ -60,65 +61,90 @@ namespace VsServerConsoleThingy
 
             DataContext = this;
 
-            LoadAnnouncements();
-
             DayWeek.ItemsSource = new ObservableCollection<string>(Enum.GetNames(typeof(DayOfWeek)));
-            LoadRestartSettings();
-            InitializeRestartTimer();
-            SwitchConsoleType(true);
+            LdResSet();
+            StartResTime();
+            Consoleswap(true);
             
-            btnStartServer.Click += BtnStartServer_Click;
-            btnStopServer.Click += BtnStopServer_Click;
-            btnAddAnnouncement.Click += BtnAddAnnouncement_Click;
-            btnRemoveAnnouncement.Click += BtnRemoveAnnouncement_Click;
-            whitelist.KeyDown += Whitelist_KeyDown;
-            blacklist.KeyDown += Blacklist_KeyDown;
-            Closing += MainWindow_Closing;
-            txtServerInput.KeyDown += TxtServerInput_KeyDown;
-            EnableRestart.Click += EnableRestart_Click;
-            DailyRestart.Click += DailyRestart_Click;
-            TimeHour.ValueChanged += TimeHour_ValueChanged;
-            TimeMinute.ValueChanged += TimeMinute_ValueChanged;
-            DayWeek.SelectionChanged += DayWeek_SelectionChanged;
+            btnStartServer.Click += BtnStrtSrvClk;
+            btnStopServer.Click += BtnStpSrv;
+            btnAddAnnouncement.Click += BtnAnnClick;
+            btnRemoveAnnouncement.Click += BtnRemClick;
+            whitelist.KeyDown += Whitelister;
+            blacklist.KeyDown += Blacklister;
+            Closing += MainCls;
+            txtServerInput.KeyDown += SrvInputDat;
+            EnableRestart.Click += EnRes;
+            DailyRestart.Click += DlyRes;
+            TimeHour.ValueChanged += ChngHr;
+            TimeMinute.ValueChanged += ChngMin;
+            DayWeek.SelectionChanged += DyWkSel;
             lstPlayers.ItemsSource = currentPlayers;
-            AdminCheck.Click += AdminCheck_Click;
-            SwitchConsoleType(restartSettings.UseRichTextBox);
-            _ = InitializeAndStartServer();
+            AdminCheck.Click += TxtBx;
+            Consoleswap(restartSettings.UseRichTextBox);
+            _ = InitSrvSt();
             StartServer();
         }
-        private async Task InitializeAndStartServer()
+
+        private async void InitAsyc()
         {
-            await InitializeVintagestoryPathsAsync();
+            await InitVSPath();
+            await LdAnn();
+            await InitSrvSt();
+            await LdAnn();
+        }
+        private async Task InitSrvSt()
+        {
+            await InitVSPath();
             StartServer();
         }
-        private void AdminCheck_Click(object? sender, RoutedEventArgs e)
+        private void TxtBx(object? sender, RoutedEventArgs e)
         {
             bool useRichTextBox = AdminCheck.IsChecked.GetValueOrDefault();
-            SwitchConsoleType(useRichTextBox);
+            Consoleswap(useRichTextBox);
             restartSettings.UseRichTextBox = useRichTextBox;
-            SaveRestartSettings();
+            SvResSet();
         }
 
 
-        private async Task InitializeVintagestoryPathsAsync()
+        private async Task InitVSPath()
         {
             try
             {
-                vsPaths = new VintageStoryPaths();
-                if (string.IsNullOrEmpty(vsPaths.InstallationPath))
+                vsPaths = new VSPths();
+                if (string.IsNullOrEmpty(vsPaths.InstPth))
                 {
-                    await ShowPathSelectionDialog();
+                    await SelDialog();
                 }
             }
             catch (Exception)
             {
                 vsPaths = null;
-                await ShowPathSelectionDialog();
+                await SelDialog();
             }
         }
 
+        private async Task<string?> AskDir()
+        {
+            var topLevel = TopLevel.GetTopLevel(this);
+            if (topLevel != null)
+            {
+                var folders = await topLevel.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+                {
+                    Title = "Select Vintage Story Data Directory",
+                    AllowMultiple = false
+                });
 
-        private async Task ShowPathSelectionDialog()
+                if (folders.Count > 0)
+                {
+                    return folders[0].Path.LocalPath;
+                }
+            }
+            return null;
+        }
+
+
+        private async Task SelDialog()
         {
             var messageBox = MessageBoxManager.GetMessageBoxStandard(
                 new MessageBoxStandardParams
@@ -136,11 +162,11 @@ namespace VsServerConsoleThingy
                 {
                     if (vsPaths != null)
                     {
-                        await vsPaths.ManuallySelectPaths();
+                        await vsPaths.ManPth();
                     }
                     else
                     {
-                        AppendText("Error: VintageStoryPaths is not initialized." + Environment.NewLine, Colors.Red);
+                        TxtXChng("Error: VSPths is not initialized." + Environment.NewLine, Colors.Red);
                     }
                 }
                 catch (Exception ex)
@@ -163,13 +189,13 @@ namespace VsServerConsoleThingy
 
 
 
-        private void AppendText(string text, Color color)
+        private void TxtXChng(string text, Color color)
         {
             Dispatcher.UIThread.InvokeAsync(() =>
             {
                 if (txtConsole == null)
                 {
-                    Debug.WriteLine("txtConsole is null in AppendText");
+                    Debug.WriteLine("txtConsole is null in TxtXChng");
                     return;
                 }
 
@@ -177,7 +203,7 @@ namespace VsServerConsoleThingy
                 {
                     if (richTextBox.FlowDoc == null)
                     {
-                        Debug.WriteLine("FlowDoc is null in AppendText");
+                        Debug.WriteLine("FlowDoc is null in TxtXChng");
                         return;
                     }
 
@@ -205,7 +231,7 @@ namespace VsServerConsoleThingy
             });
         }
 
-        private void SwitchConsoleType(bool useRichTextBox)
+        private void Consoleswap(bool useRichTextBox)
         {
             var grid = this.FindControl<Grid>("ConsoleGrid");
             if (grid == null) return;
@@ -241,7 +267,8 @@ namespace VsServerConsoleThingy
                     BorderThickness = new Thickness(0),
                     AcceptsReturn = true,
                     TextWrapping = TextWrapping.Wrap,
-                    IsReadOnly = true
+                    IsReadOnly = true,
+                    Focusable = false
                 };
                 grid.Children.Add(textBox);
                 txtConsole = textBox;
@@ -254,7 +281,7 @@ namespace VsServerConsoleThingy
         }
 
 
-        private void TxtServerInput_KeyDown(object? sender, Avalonia.Input.KeyEventArgs e)
+        private void SrvInputDat(object? sender, Avalonia.Input.KeyEventArgs e)
         {
             if (e.Key == Avalonia.Input.Key.Enter && txtServerInput != null)
             {
@@ -262,7 +289,7 @@ namespace VsServerConsoleThingy
                 if (!string.IsNullOrEmpty(input) && serverProcess != null && !serverProcess.HasExited)
                 {
                     serverProcess.StandardInput.WriteLine(input);
-                    AppendText($"Admin Input: {input}" + Environment.NewLine, Colors.MediumPurple);
+                    TxtXChng($"Admin Input: {input}" + Environment.NewLine, Colors.MediumPurple);
                     txtServerInput.Text = string.Empty;
                 }
             }
@@ -272,7 +299,7 @@ namespace VsServerConsoleThingy
 
         //private void AppendPrompt()
         //{
-        //    AppendText(PROMPT, Colors.White);
+        //    TxtXChng(PROMPT, Colors.White);
         //     lastInputPosition = txtConsole.FlowDoc.Text.Length;
         //}
 
@@ -282,7 +309,7 @@ namespace VsServerConsoleThingy
         //   }
 
 
-        private async Task StopServerAsync()
+        private async Task StpSrvAsync()
         {
             if (serverProcess != null && !serverProcess.HasExited)
             {
@@ -292,25 +319,25 @@ namespace VsServerConsoleThingy
                     if (AutoSaveEnabled)
                     {
                         serverProcess.StandardInput.WriteLine("/autosavenow");
-                        AppendText("saving..." + Environment.NewLine, Colors.Green);
+                        TxtXChng("saving..." + Environment.NewLine, Colors.Green);
                         await Task.Delay(2000);
                     }
                     serverProcess.StandardInput.WriteLine("/stop");
-                    AppendText("stopping..." + Environment.NewLine, Colors.White);
+                    TxtXChng("stopping..." + Environment.NewLine, Colors.White);
                     bool exited = await Task.Run(() => serverProcess.WaitForExit(10000));
                     if (exited)
                     {
-                        AppendText("Server has stopped" + Environment.NewLine, Colors.White);
+                        TxtXChng("Server has stopped" + Environment.NewLine, Colors.White);
                     }
                     else
                     {
-                        AppendText("Server did not stop within the expected time. Forcing shutdown..." + Environment.NewLine, Colors.Red);
+                        TxtXChng("Server did not stop within the expected time. Forcing shutdown..." + Environment.NewLine, Colors.Red);
                         serverProcess.Kill();
                     }
                 }
                 catch (Exception ex)
                 {
-                    AppendText($"Error while stopping the server: {ex.Message}" + Environment.NewLine, Colors.Red);
+                    TxtXChng($"Error while stopping the server: {ex.Message}" + Environment.NewLine, Colors.Red);
                 }
                 finally
                 {
@@ -322,47 +349,111 @@ namespace VsServerConsoleThingy
             }
         }
 
+        private void ChckExst(string path)
+        {
+            string? directory = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+        }
 
-        private async void MainWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
+
+        private async void MainCls(object? sender, System.ComponentModel.CancelEventArgs e)
         {
             if (serverProcess != null && !serverProcess.HasExited)
             {
                 e.Cancel = true;
-                await StopServerAsync();
+                await StpSrvAsync();
                 Close();
             }
         }
 
         private void StartServer()
         {
-            if (restartSettings.StartAutomatically && (serverProcess == null || serverProcess.HasExited) && vsPaths != null && !string.IsNullOrEmpty(vsPaths.ServerExecutablePath))
+            if (restartSettings.StartAutomatically && (serverProcess == null || serverProcess.HasExited) && vsPaths != null && !string.IsNullOrEmpty(vsPaths.ExecPth))
             {
-                BtnStartServer_Click(null, null);
+                BtnStrtSrvClk(null, null);
             }
         }
 
-        private void LoadAnnouncements()
+        private async Task LdAnn()
         {
-            if (File.Exists(configPath))
+            try
             {
-                string json = File.ReadAllText(configPath);
-                var loadedAnnouncements = JsonSerializer.Deserialize<List<Announcement>>(json, jsonOptions);
-                if (loadedAnnouncements != null)
+                string? configDir = Path.GetDirectoryName(configPath);
+                if (configDir == null)
                 {
-                    announcements.Clear();
-                    announcements.AddRange(loadedAnnouncements);
+                    TxtXChng("Invalid configuration path." + Environment.NewLine, Colors.Red);
+                    return;
                 }
+
+                if (!Directory.Exists(configDir))
+                {
+                    var messageBox = MessageBoxManager.GetMessageBoxStandard(
+                        new MessageBoxStandardParams
+                        {
+                            ContentTitle = "Directory Not Found",
+                            ContentMessage = "The default configuration directory was not found. Would you like to select it manually?",
+                            ButtonDefinitions = ButtonEnum.YesNo
+                        });
+
+                    var result = await messageBox.ShowAsync();
+
+                    if (result == ButtonResult.Yes)
+                    {
+                        string? selectedDir = await AskDir();
+                        if (selectedDir != null)
+                        {
+                            configPath = Path.Combine(selectedDir, "ModConfig", "AnnouncerConfig.json");
+                        }
+                        else
+                        {
+                            TxtXChng("No directory selected. Using default path." + Environment.NewLine, Colors.Yellow);
+                        }
+                    }
+                }
+
+                ChckExst(configPath);
+                if (File.Exists(configPath))
+                {
+                    string json = await File.ReadAllTextAsync(configPath);
+                    var loadedAnnouncements = JsonSerializer.Deserialize<List<Announcement>>(json, jsonOptions);
+                    if (loadedAnnouncements != null)
+                    {
+                        announcements.Clear();
+                        announcements.AddRange(loadedAnnouncements);
+                    }
+                }
+                else
+                {
+                    announcements.Add(new Announcement { Hour = 6, Minute = 0, Message = "placeholder announcement" });
+                    await SvAnn();
+                }
+                UpAnnLst();
             }
-            else
+            catch (Exception ex)
             {
-                announcements.Add(new Announcement { Hour = 6, Minute = 0, Message = "placeholder announcement" });
-                SaveAnnouncements();
+                TxtXChng($"Error loading announcements: {ex.Message}" + Environment.NewLine, Colors.Red);
             }
-            UpdateAnnouncementsList();
+        }
+
+        private async Task SvAnn()
+        {
+            try
+            {
+                ChckExst(configPath);
+                string json = JsonSerializer.Serialize(announcements, jsonOptions);
+                await File.WriteAllTextAsync(configPath, json);
+            }
+            catch (Exception ex)
+            {
+                TxtXChng($"Error saving announcements: {ex.Message}" + Environment.NewLine, Colors.Red);
+            }
         }
 
 
-        private void UpdatePlayersList(string playerName, bool isJoining)
+        private void UpPlayLst(string playerName, bool isJoining)
         {
             Dispatcher.UIThread.InvokeAsync(() =>
             {
@@ -409,11 +500,11 @@ namespace VsServerConsoleThingy
         }
 
 
-        private void BtnStartServer_Click(object? sender, RoutedEventArgs? e)
+        private void BtnStrtSrvClk(object? sender, RoutedEventArgs? e)
         {
-            if (vsPaths == null || string.IsNullOrEmpty(vsPaths.ServerExecutablePath))
+            if (vsPaths == null || string.IsNullOrEmpty(vsPaths.ExecPth))
             {
-                AppendText("Vintage Story paths are not initialized." + Environment.NewLine, Colors.Red);
+                TxtXChng("Vintage Story paths are not initialized." + Environment.NewLine, Colors.Red);
                 return;
             }
 
@@ -423,8 +514,8 @@ namespace VsServerConsoleThingy
                 {
                     StartInfo = new ProcessStartInfo
                     {
-                        FileName = vsPaths.ServerExecutablePath,
-                        WorkingDirectory = vsPaths.InstallationPath,
+                        FileName = vsPaths.ExecPth,
+                        WorkingDirectory = vsPaths.InstPth,
                         UseShellExecute = false,
                         RedirectStandardOutput = true,
                         RedirectStandardError = true,
@@ -432,17 +523,17 @@ namespace VsServerConsoleThingy
                         CreateNoWindow = true,
                     }
                 };
-                serverProcess.OutputDataReceived += ServerProcess_OutputDataReceived;
-                serverProcess.ErrorDataReceived += ServerProcess_ErrorDataReceived;
+                serverProcess.OutputDataReceived += SrvPrcOutDat;
+                serverProcess.ErrorDataReceived += SrvPrcErrDat;
                 serverProcess.Start();
                 serverProcess.BeginOutputReadLine();
                 serverProcess.BeginErrorReadLine();
-                AppendText("Server started." + Environment.NewLine, Colors.White);
+                TxtXChng("Server started." + Environment.NewLine, Colors.White);
                 //AppendPrompt();
             }
         }
 
-        private void ServerProcess_OutputDataReceived(object sender, DataReceivedEventArgs e)
+        private void SrvPrcOutDat(object sender, DataReceivedEventArgs e)
         {
             if (!string.IsNullOrEmpty(e.Data))
             {
@@ -461,39 +552,39 @@ namespace VsServerConsoleThingy
                     if (e.Data.Contains("joins.", StringComparison.OrdinalIgnoreCase))
                     {
                         string playerName = PlayerName(e.Data);
-                        UpdatePlayersList(playerName, true);
+                        UpPlayLst(playerName, true);
                     }
                     else if (e.Data.Contains("[Server Event] Player", StringComparison.OrdinalIgnoreCase) && e.Data.Contains("left.", StringComparison.OrdinalIgnoreCase))
                     {
                         string playerName = PlayerName(e.Data);
-                        UpdatePlayersList(playerName, false);
+                        UpPlayLst(playerName, false);
                     }
 
-                    AppendText(e.Data + Environment.NewLine, textColor);
+                    TxtXChng(e.Data + Environment.NewLine, textColor);
                 });
             }
         }
 
 
 
-        private void ServerProcess_ErrorDataReceived(object sender, DataReceivedEventArgs e)
+        private void SrvPrcErrDat(object sender, DataReceivedEventArgs e)
         {
             if (!string.IsNullOrEmpty(e.Data))
             {
                 Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    AppendText(e.Data + Environment.NewLine, Colors.Red);
+                    TxtXChng(e.Data + Environment.NewLine, Colors.Red);
                     //AppendPrompt();
                 });
             }
         }
 
-        private async void BtnStopServer_Click(object? sender, RoutedEventArgs e)
+        private async void BtnStpSrv(object? sender, RoutedEventArgs e)
         {
-            await StopServerAsync();
+            await StpSrvAsync();
         }
 
-        private void Whitelist_KeyDown(object? sender, Avalonia.Input.KeyEventArgs e)
+        private void Whitelister(object? sender, Avalonia.Input.KeyEventArgs e)
         {
             if (e.Key == Avalonia.Input.Key.Enter && whitelist != null && serverProcess != null && !serverProcess.HasExited)
             {
@@ -501,13 +592,13 @@ namespace VsServerConsoleThingy
                 if (!string.IsNullOrEmpty(playerName))
                 {
                     serverProcess.StandardInput.WriteLine($"/whitelist {playerName} add");
-                    AppendText($"Whitelisting {playerName}..." + Environment.NewLine, Colors.White);
+                    TxtXChng($"Whitelisting {playerName}..." + Environment.NewLine, Colors.White);
                     whitelist.Text = string.Empty;
                 }
             }
         }
 
-        private void Blacklist_KeyDown(object? sender, Avalonia.Input.KeyEventArgs e)
+        private void Blacklister(object? sender, Avalonia.Input.KeyEventArgs e)
         {
             if (e.Key == Avalonia.Input.Key.Enter && blacklist != null && serverProcess != null && !serverProcess.HasExited)
             {
@@ -515,20 +606,20 @@ namespace VsServerConsoleThingy
                 if (!string.IsNullOrEmpty(playerName))
                 {
                     serverProcess.StandardInput.WriteLine($"/ban {playerName}");
-                    AppendText($"Banning {playerName}..." + Environment.NewLine, Colors.Red);
+                    TxtXChng($"Banning {playerName}..." + Environment.NewLine, Colors.Red);
                     blacklist.Text = string.Empty;
                 }
             }
         }
 
-        private void SaveRestartSettings()
+        private void SvResSet()
         {
             restartSettings.UseRichTextBox = AdminCheck.IsChecked ?? false;
             string json = JsonSerializer.Serialize(restartSettings, jsonOptions);
             File.WriteAllText(restartSettingsPath, json);
         }
 
-        private void LoadRestartSettings()
+        private void LdResSet()
         {
             if (File.Exists(restartSettingsPath))
             {
@@ -554,10 +645,10 @@ namespace VsServerConsoleThingy
                 restartSettings.LastRestartDate = DateTime.MinValue;
                 restartSettings.UseRichTextBox = false;
             }
-            UpdateRestartControls();
+            ResCtrlChng();
         }
 
-        private void UpdateRestartControls()
+        private void ResCtrlChng()
         {
             EnableRestart.IsChecked = restartSettings.Enabled;
             DailyRestart.IsChecked = restartSettings.IsDaily;
@@ -575,48 +666,48 @@ namespace VsServerConsoleThingy
             }
         }
 
-        private void EnableRestart_Click(object? sender, RoutedEventArgs e)
+        private void EnRes(object? sender, RoutedEventArgs e)
         {
             restartSettings.Enabled = EnableRestart.IsChecked == true;
-            SaveRestartSettings();
+            SvResSet();
         }
 
-        private void DailyRestart_Click(object? sender, RoutedEventArgs e)
+        private void DlyRes(object? sender, RoutedEventArgs e)
         {
             restartSettings.IsDaily = DailyRestart.IsChecked == true;
             DayWeek.IsEnabled = !restartSettings.IsDaily;
-            SaveRestartSettings();
+            SvResSet();
         }
 
-        private void TimeHour_ValueChanged(object? sender, NumericUpDownValueChangedEventArgs e)
+        private void ChngHr(object? sender, NumericUpDownValueChangedEventArgs e)
         {
             restartSettings.Hour = (int)Math.Min(Math.Max(e.NewValue ?? 0, 0), 23);
-            SaveRestartSettings();
+            SvResSet();
         }
 
-        private void TimeMinute_ValueChanged(object? sender, NumericUpDownValueChangedEventArgs e)
+        private void ChngMin(object? sender, NumericUpDownValueChangedEventArgs e)
         {
             restartSettings.Minute = (int)Math.Min(Math.Max(e.NewValue ?? 0, 0), 59);
-            SaveRestartSettings();
+            SvResSet();
         }
 
-        private void DayWeek_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+        private void DyWkSel(object? sender, SelectionChangedEventArgs e)
         {
             if (DayWeek.SelectedIndex >= 0)
             {
                 restartSettings.WeekDay = (DayOfWeek)DayWeek.SelectedIndex;
-                SaveRestartSettings();
+                SvResSet();
             }
         }
 
-        private void InitializeRestartTimer()
+        private void StartResTime()
         {
             restartTimer.Interval = TimeSpan.FromSeconds(10);
-            restartTimer.Tick += RestartTimer_Tick;
+            restartTimer.Tick += ResTime;
             restartTimer.Start();
         }
 
-        private async void RestartTimer_Tick(object? sender, EventArgs e)
+        private async void ResTime(object? sender, EventArgs e)
         {
             if (restartSettings.Enabled && serverProcess != null && !serverProcess.HasExited)
             {
@@ -636,20 +727,13 @@ namespace VsServerConsoleThingy
 
         private async Task RestartServer()
         {
-            await StopServerAsync();
-            BtnStartServer_Click(null, null);
+            await StpSrvAsync();
+            BtnStrtSrvClk(null, null);
             restartSettings.LastRestartDate = DateTime.Now;
-            SaveRestartSettings();
+            SvResSet();
         }
 
-
-        private void SaveAnnouncements()
-        {
-            string json = JsonSerializer.Serialize(announcements, jsonOptions);
-            File.WriteAllText(configPath, json);
-        }
-
-        private void UpdateAnnouncementsList()
+        private void UpAnnLst()
         {
             lstAnnouncements.ItemsSource = new ObservableCollection<string>(
                  announcements.Select(a => $"{a.Hour:D2}:{a.Minute:D2} - {a.Message}")
@@ -657,24 +741,24 @@ namespace VsServerConsoleThingy
 
         }
 
-        private void BtnAddAnnouncement_Click(object? sender, RoutedEventArgs e)
+        private async void BtnAnnClick(object? sender, RoutedEventArgs e)
         {
             int hour = (int)(numHour.Value ?? 0);
             int minute = (int)(numMinute.Value ?? 0);
             string message = txtMessage.Text ?? string.Empty;
 
             announcements.Add(new Announcement { Hour = hour, Minute = minute, Message = message });
-            SaveAnnouncements();
-            UpdateAnnouncementsList();
+            await SvAnn();
+            UpAnnLst();
         }
 
-        private void BtnRemoveAnnouncement_Click(object? sender, RoutedEventArgs e)
+        private async void BtnRemClick(object? sender, RoutedEventArgs e)
         {
             if (lstAnnouncements.SelectedIndex >= 0)
             {
                 announcements.RemoveAt(lstAnnouncements.SelectedIndex);
-                SaveAnnouncements();
-                UpdateAnnouncementsList();
+                await SvAnn();
+                UpAnnLst();
             }
         }
     }
