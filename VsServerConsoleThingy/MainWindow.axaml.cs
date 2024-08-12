@@ -83,7 +83,6 @@ namespace VsServerConsoleThingy
             AdminCheck.Click += TxtBx;
             Consoleswap(restartSettings.UseRichTextBox);
             _ = InitSrvSt();
-            StartServer();
         }
 
         private async void InitAsyc()
@@ -117,8 +116,9 @@ namespace VsServerConsoleThingy
                     await SelDialog();
                 }
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                TxtXChng($"Error initializing VSPths: {ex.Message}" + Environment.NewLine, Colors.Red);
                 vsPaths = null;
                 await SelDialog();
             }
