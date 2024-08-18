@@ -6,7 +6,51 @@
         Width="1144" Height="601"
         Background="#9CB6D3">
 
+	<Window.Resources>
+		<Style x:Key="NoFoc" Selector="TextBox">
+			<Setter Property="Background" Value="Transparent"/>
+			<Setter Property="BorderBrush" Value="Transparent"/>
+			<Setter Property="CornerRadius" Value="15"/>
+		</Style>
+
+		<Style x:Key="Other" Selector="TextBox">
+			<Setter Property="Background" Value="Transparent"/>
+			<Setter Property="BorderBrush" Value="Transparent"/>
+			<Setter Property="CornerRadius" Value="20"/>
+		</Style>
+	</Window.Resources>
+
 	<Window.Styles>
+		<Style Selector="TextBox.NoFoc">
+			<Setter Property="Background" Value="Transparent"/>
+			<Setter Property="BorderBrush" Value="Transparent"/>
+		</Style>
+		<Style Selector="TextBox.NoFoc:focus /template/ Border#PART_BorderElement">
+			<Setter Property="Background" Value="Transparent"/>
+			<Setter Property="BorderBrush" Value="Transparent"/>
+		</Style>
+		<Style Selector="TextBox.NoFoc:pointerover /template/ Border#PART_BorderElement">
+			<Setter Property="Background" Value="Transparent"/>
+			<Setter Property="BorderBrush" Value="Transparent"/>
+		</Style>
+
+		<Style Selector="TextBox.Other">
+			<Setter Property="Background" Value="Transparent"/>
+			<Setter Property="BorderBrush" Value="Transparent"/>
+			<Setter Property="CornerRadius" Value="20"/>
+		</Style>
+		<Style Selector="TextBox.Other:focus /template/ Border#PART_BorderElement">
+			<Setter Property="Background" Value="#CCDCEB"/>
+			<Setter Property="BorderBrush" Value="Transparent"/>
+			<Setter Property="CornerRadius" Value="20"/>
+		</Style>
+		<Style Selector="TextBox.Other:pointerover /template/ Border#PART_BorderElement">
+			<Setter Property="Background" Value="#CCDCEB"/>
+			<Setter Property="BorderBrush" Value="Transparent"/>
+			<Setter Property="CornerRadius" Value="20"/>
+		</Style>
+
+
 		<Style Selector="Button">
 			<Setter Property="Foreground" Value="#4A4A4A"/>
 			<Setter Property="BorderBrush" Value="#4A4A4A"/>
@@ -47,14 +91,8 @@
 			<Setter Property="CornerRadius" Value="15"/>
 		</Style>
 
-		<Style Selector="TextBox">
-			<Setter Property="Foreground" Value="#4A4A4A"/>
-			<Setter Property="Background" Value="#E0F0FF"/>
-			<Setter Property="CornerRadius" Value="15"/>
-		</Style>
-
 		<Style Selector="ListBox">
-			<Setter Property="Background" Value="#E0F0FF"/>
+			<Setter Property="Background" Value="#E1D3F8"/>
 			<Setter Property="CornerRadius" Value="15"/>
 		</Style>
 
@@ -74,9 +112,14 @@
 			<Setter Property="FontSize" Value="16"/>
 			<Setter Property="FontWeight" Value="SemiBold"/>
 		</Style>
+		<Style Selector="TextBox:focus">
+			<Setter Property="BorderBrush" Value="{Binding BorderBrush, RelativeSource={RelativeSource Self}}"/>
+		</Style>
+
 	</Window.Styles>
 
 	<Grid>
+		
 		<Grid.ColumnDefinitions>
 			<ColumnDefinition Width="*"/>
 			<ColumnDefinition Width="260"/>
@@ -92,13 +135,11 @@
 				<ScrollViewer>
 					<Grid x:Name="ConsoleGrid">
 						<avrtb:RichTextBox x:Name="_txtConsole"
-						   Background="Transparent"
-						   Foreground="#E0F0FF"
-						   FontFamily="Consolas"
-						   Margin="10"
-						   Padding="10"
-						   BorderThickness="0"
-						   Focusable="False"/>
+                                       Background="Transparent"
+                                       FontFamily="Consolas"
+                                       Margin="10"
+                                       Padding="10"
+                                       BorderThickness="0"/> <!--Foreground="#E0F0FF"--> 
 					</Grid>
 				</ScrollViewer>
 			</Border>
@@ -110,40 +151,142 @@
 				</Grid.ColumnDefinitions>
 				<Border Grid.Column="0" Background="#7A9CC6" CornerRadius="20" Margin="15,0,15,15">
 					<StackPanel Margin="15">
-						<TextBox x:Name="txtServerInput" Watermark="Server Input" Margin="0,0,0,15" Background="#DED6CE"/>
+						<TextBox x:Name="txtServerInput" Classes="Other" Watermark="Server Input" Margin="0,0,0,15" Background="#DED6CE"/>
+						
 						<StackPanel Orientation="Horizontal">
 							<Button x:Name="btnStartServer"
 									Content="Start Server"
 									Background="#B0E0E6"
 									Width="200" Height="70"
 									Margin="0,0,15,15"
-									Classes="large" />
+									Classes="large"/>
+								
 							<Button x:Name="btnStopServer"
 									Content="Stop Server"
 									Background="#FFB6C1"
 									Width="200" Height="70"
 									Margin="0,0,15,15"
 									Classes="large" />
+
+							
 						</StackPanel>
 						<StackPanel Orientation="Horizontal">
-							<CheckBox x:Name="AdminCheck" Content="Use Richtext" Margin="0,0,135,0" />
-							<CheckBox x:Name="AutoSave" Content="Saving"  />
+							<CheckBox 
+							x:Name="AdminCheck" 
+							Content="Use Richtext" 
+							Margin="10,-39,0,10" 
+							Foreground="#F7D9C4"
+							/>
+							
+							<CheckBox 
+							x:Name="AutoSave" 
+							Content="Saving" 
+							Margin="110,0,0,50"
+							Foreground="#F7D9C4"
+							/>
+							
+							<CheckBox 
+							x:Name="Backup" 
+							Content="Backup" 
+							Margin="-69,0,0,-10"
+							Foreground="#F7D9C4"
+							/>
+
+							<TextBox
+								x:Name="BackupNum"
+								Classes="Other"
+								Margin = "15,10,0,0"
+								Width="70" Height="10"
+								Background = "#DED6CE"
+								Foreground="#F7D9C4"
+								Watermark="Keep #"
+								>
+							</TextBox>
+
+							<Button x:Name="PnBtn"
+									Content="Settings"
+									Width="100"
+									Height="50"
+									VerticalAlignment="Top"
+									HorizontalAlignment="Right"
+									Margin="40,-75,0,0"
+									Click="PnBtnClk"/>
+							
 						</StackPanel>
 					</StackPanel>
 				</Border>
 
 				<Border Grid.Column="1" Background="#7A9CC6" BorderThickness="2" Margin="0,0,15,15" CornerRadius="0">
 					<StackPanel Margin="15" Width="240">
-						<TextBlock Text="Server Auto Restart" FontWeight="Bold" FontSize="18" Margin="0,0,0,10"/>
-						<CheckBox x:Name="EnableRestart" Content="Enabled" Margin="0,0,0,10"/>
+						
+						<TextBlock Text="Server Auto Restart" 
+								   Foreground="#E8EBCF" 
+								   FontWeight="Bold" 
+								   FontSize="18" 
+								   Margin="0,0,0,10"
+								   />
+						<!--
+						Old test txt color for the weekly restart section, might swap back at some time?
+						but rn i like the current one more
+						
+						Foreground="#FFCAE9" 
+						
+						the one before this was just straight Black btw
+						-->
+						
+						<CheckBox 
+							x:Name="EnableRestart" 
+							Content="Enabled" 
+							Margin="0,0,0,10" 
+							Foreground="#F7D9C4"
+							/>
+						
 						<StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-							<RadioButton x:Name="DailyRestart" Content="Daily" Margin="0,0,15,0" />
-							<RadioButton x:Name="WeeklyRestart" Content="Weekly" />
+							
+							<RadioButton 
+								x:Name="DailyRestart" 
+								Content="Daily" 
+								Margin="0,0,15,0" 
+								Foreground="#F7D9C4"
+								/>
+							
+							<RadioButton 
+								x:Name="WeeklyRestart" 
+								Content="Weekly" 
+								Foreground="#F7D9C4"
+								/>
+							
 						</StackPanel>
-						<ComboBox x:Name="DayWeek" Width="210" Margin="0,0,0,10" />
+						
+						<ComboBox x:Name="DayWeek" 
+								  Width="210" 
+								  Margin="0,0,0,10" 
+								  Background="#D6F0E2"
+								  />
+						
 						<StackPanel Orientation="Horizontal">
-							<NumericUpDown x:Name="TimeHour" Minimum="0" Maximum="23" Width="120" Margin="-5,0,10,0" Background="#8FBC8F" Foreground="White" Watermark="H" />
-							<NumericUpDown x:Name="TimeMinute" Minimum="0" Maximum="59" Width="120" Background="#9ACD32" Foreground="White" Watermark="M" />
+							
+							<NumericUpDown 
+								x:Name="TimeHour" 
+								Minimum="0" 
+								Maximum="23" 
+								Width="120" 
+								Margin="-5,0,10,0" 
+								Background="#FFCBCB" 
+								Foreground="Black" 
+								Watermark="H" 
+								/>
+							
+							<NumericUpDown 
+								x:Name="TimeMinute" 
+								Minimum="0" 
+								Maximum="59" 
+								Width="120" 
+								Background="#DBCDF0" 
+								Foreground="Black" 
+								Watermark="M" 
+								/>
+							
 						</StackPanel>
 					</StackPanel>
 				</Border>
@@ -153,11 +296,32 @@
 		<Border Grid.Column="1" Background="#7A9CC6" CornerRadius="20" Margin="0,15,15,15">
 			<StackPanel Margin="15">
 				<StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-					<NumericUpDown x:Name="numHour" Minimum="0" Maximum="23" Width="115" Margin="-10,0,0,0" Background="#8FBC8F" Foreground="White" Watermark="H" />
-					<NumericUpDown x:Name="numMinute" Minimum="0" Maximum="59" Width="115" Margin="4,0,0,0" Background="#9ACD32" Foreground="White" Watermark="M" />
+					
+					<NumericUpDown 
+						x:Name="numHour" 
+						Minimum="0" 
+						Maximum="23" 
+						Width="115" 
+						Margin="-10,0,0,0" 
+						Background="#F8D7C6" 
+						Foreground="Black" 
+						Watermark="H" 
+						/>
+					
+					<NumericUpDown 
+						x:Name="numMinute" 
+						Minimum="0" 
+						Maximum="59" 
+						Width="115" 
+						Margin="4,0,0,0" 
+						Background="#EAC7C7" 
+						Foreground="Black" 
+						Watermark="M" 
+						/>
+					
 				</StackPanel>
 
-				<TextBox x:Name="txtMessage" Watermark="Enter message" Margin="0,0,0,10" />
+				<TextBox x:Name="txtMessage" Classes="Other" Background="#E1D3F8" Watermark="Enter message" Margin="0,0,0,10" />
 
 				<ListBox x:Name="lstAnnouncements" Height="140" Margin="0,0,0,10" />
 
@@ -177,16 +341,63 @@
 				</StackPanel>
 
 				<Border Background="#AFEEEE" CornerRadius="15" Margin="0,0,0,10">
-					<ListBox x:Name="lstPlayers" Height="160" Background="Transparent" BorderThickness="0" />
+					<ListBox x:Name="lstPlayers" Height="160" BorderThickness="0">
+						<!--
+						<ListBox.Items>
+							<ListBoxItem x:Name="playerCount" IsHitTestVisible="False" />
+						</ListBox.Items>
+						-->
+					</ListBox>
 				</Border>
 
 				<Border Background="#98FB98" CornerRadius="15" Margin="0,0,0,10">
-					<TextBox x:Name="whitelist" Watermark="Whitelist" Background="Transparent" BorderThickness="0" />
+					<TextBox x:Name="whitelist" Classes="Other" Watermark="Whitelist" Background="Transparent" BorderThickness="0" />
 				</Border>
 				<Border Background="#FFA07A" CornerRadius="15">
-					<TextBox x:Name="blacklist" Watermark="Blacklist" Background="Transparent" BorderThickness="0" />
+					<TextBox x:Name="blacklist" Classes="Other" Watermark="Blacklist" Background="Transparent" BorderThickness="0" />
 				</Border>
 			</StackPanel>
 		</Border>
+		<SplitView x:Name="Sidebar"
+                   IsPaneOpen="False"
+                   DisplayMode="Overlay"
+                   OpenPaneLength="300"
+                   PanePlacement="Left"
+				   Opacity="0.8"
+				   >
+			<SplitView.Pane>
+				<Border Background="#7A9CC6" CornerRadius="0">
+					<StackPanel Margin="15">
+						<TextBlock Text="Server Statistics" FontSize="20" Margin="0,0,0,20" FontWeight="Bold"/>
+
+						<Border Background="#98FB98" CornerRadius="15" Margin="0,0,0,15">
+							<StackPanel Margin="10">
+								<TextBlock Text="Total Unique Players" FontSize="16" Margin="0,0,0,5"/>
+								<TextBlock x:Name="TotPlay" Text="0" FontSize="24" FontWeight="Bold"/>
+							</StackPanel>
+						</Border>
+
+						<Border Background="#AFEEEE" CornerRadius="15" Margin="0,0,0,15">
+							<StackPanel Margin="10">
+								<TextBlock Text="Unique Players (Last Week)" FontSize="16" Margin="0,0,0,5"/>
+								<TextBlock x:Name="TotPlayWk" Text="0" FontSize="24" FontWeight="Bold"/>
+							</StackPanel>
+						</Border>
+
+						<TextBlock Text="Configuration" FontSize="20" Margin="0,20,0,20" FontWeight="Bold"/>
+
+						<Button Content="Path Settings"
+								Background="#B0E0E6"
+								Margin="0,0,0,10"
+								Click="PthSetClk"/>
+
+						<Button Content="Restart Announcements"
+								Background="#FFB6C1"
+								Margin="0,0,0,10"
+								Click="ResAnnClk"/>
+					</StackPanel>
+				</Border>
+			</SplitView.Pane>
+		</SplitView>
 	</Grid>
 </Window>

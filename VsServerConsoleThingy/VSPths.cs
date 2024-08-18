@@ -47,11 +47,12 @@ namespace VsServerConsoleThingy
         private void DetWinPth()
         {
             string[] potentialPaths =
-            {
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Vintagestory"),
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Vintagestory"),
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Vintagestory"),
-            };
+            [
+                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Vintagestory"),
+                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Vintagestory"),
+                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Vintagestory"),
+            ];
+
 
             foreach (var path in potentialPaths)
             {
@@ -67,11 +68,12 @@ namespace VsServerConsoleThingy
         private void DetLinPth()
         {
             string[] potentialPaths =
-            {
-                "/opt/vintagestory",
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "vintagestory"),
-                "/usr/local/games/vintagestory",
-            };
+                    [
+                     "/opt/vintagestory",
+                     Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "vintagestory"),
+                     "/usr/local/games/vintagestory",
+                    ];
+
 
             foreach (var path in potentialPaths)
             {
@@ -119,7 +121,7 @@ namespace VsServerConsoleThingy
             }
             else
             {
-                throw new Exception("No folder selected for Vintage Story Server installation.");
+                throw new Exception("Vintage Story Server folder not selected");
             }
         }
 
@@ -142,6 +144,12 @@ namespace VsServerConsoleThingy
             File.WriteAllText(ConfigFileName, json);
         }
 
+        public void StPth(string installPath, string execPath)
+        {
+            InstPth = installPath;
+            ExecPth = execPath;
+            SvPth();
+        }
 
         private void LdPth()
         {

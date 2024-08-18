@@ -14,10 +14,14 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
+using System.Collections.Concurrent;
 using MsBox.Avalonia.Dto;
 using MsBox.Avalonia.Enums;
 using MsBox.Avalonia;
 using Avalonia.Platform.Storage;
+using Avalonia.Styling;
+using Avalonia.Markup.Xaml.Templates;
+using Avalonia.Layout;
 
 
 namespace VsServerConsoleThingy
@@ -26,21 +30,30 @@ namespace VsServerConsoleThingy
     public partial class MainWindow : Window
     {
         private VSPths? vsPaths;
+        private static readonly string[] ExecutableFileTypes = ["exe", "dll"];
+        private static readonly string[] JsonFileTypes = ["json"];
         private readonly List<Announcement> announcements = [];
-        private string configPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "vintagestorydata", "ModConfig", "AnnouncerConfig.json"); private readonly RestartSettings restartSettings = new();
-        private readonly string restartSettingsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "vintagestorydata", "ModConfig", "RestartSettings.json");
+        public static string? ConfigPath { get; set; }
+        private readonly string configPath;
+        private readonly ResSet restartSettings = new();
+        private readonly string restartSettingsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "vintagestorydata", "ModConfig", "ResSet.json");
         private readonly DispatcherTimer restartTimer = new();
         private readonly ObservableCollection<string> currentPlayers = [];
         private static readonly JsonSerializerOptions jsonOptions = new() { WriteIndented = true };
         private Control? txtConsole;
         private Process? serverProcess;
+        private static readonly FilePickerFileType JsonFileType = new("JSON Files") { Patterns = ["*.json"] };
+        private int playerCount = 0;
 
 
         private bool AutoSaveEnabled => AutoSave?.IsChecked == true;
 
         public MainWindow()
         {
+
+            configPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "vintagestorydata", "ModConfig", "AnnConf.json");
             InitializeComponent();
+            DataContext = this;
             _ = InitAsyc();
             txtConsole = this.FindControl<Control>("_txtConsole");
 
@@ -57,14 +70,13 @@ namespace VsServerConsoleThingy
                 Debug.WriteLine("_txtConsole not found or is not a supported control type!");
             }
 
-
             DataContext = this;
 
             DayWeek.ItemsSource = new ObservableCollection<string>(Enum.GetNames(typeof(DayOfWeek)));
             LdResSet();
             StartResTime();
             Consoleswap(true);
-            
+
             btnStartServer.Click += BtnStrtSrvClk;
             btnStopServer.Click += BtnStpSrv;
             btnAddAnnouncement.Click += BtnAnnClick;
@@ -79,10 +91,206 @@ namespace VsServerConsoleThingy
             TimeMinute.ValueChanged += ChngMin;
             DayWeek.SelectionChanged += DyWkSel;
             lstPlayers.ItemsSource = currentPlayers;
+            PlayerUpdate();
             AdminCheck.Click += TxtBx;
             Consoleswap(restartSettings.UseRichTextBox);
+            ConfigPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "vintagestorydata", "ModConfig", "AnnConf.json");
         }
 
+        private async void PthSetClk(object sender, RoutedEventArgs e)
+        {
+            var dialog = new PathSettingsWindow();
+            await dialog.ShowDialog(this);
+        }
+
+        public void ResAnnClk(object sender, RoutedEventArgs e)
+        {
+            var ResAnnWin = new ResAnnWin();
+            ResAnnWin.Show();
+        }
+
+        public void UpdatePlayerCounts(int totalPlayers, int weeklyPlayers)
+        {
+            TotPlay.Text = totalPlayers.ToString();
+            TotPlayWk.Text = weeklyPlayers.ToString();
+        }
+
+        public class PathSettingsWindow : Window
+        {
+            private readonly TextBox txtInstallPath;
+            private readonly TextBox txtExecutablePath;
+            private readonly TextBox txtAnnouncerConfigPath;
+            private readonly Button btnBrowseInstall;
+            private readonly Button btnBrowseExecutable;
+            private readonly Button btnBrowseAnnouncerConfig;
+            private readonly Button btnSave;
+            private readonly VSPths vsPaths;
+
+            public PathSettingsWindow()
+            {
+                Title = "Path Settings";
+                Width = 800;
+                Height = 250;
+                vsPaths = new VSPths();
+
+                var grid = new Grid
+                {
+                    RowDefinitions =
+            {
+                new RowDefinition { Height = GridLength.Auto },
+                new RowDefinition { Height = GridLength.Auto },
+                new RowDefinition { Height = GridLength.Auto },
+                new RowDefinition { Height = GridLength.Auto }
+            },
+                    ColumnDefinitions =
+            {
+                new ColumnDefinition { Width = GridLength.Auto },
+                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                new ColumnDefinition { Width = GridLength.Auto }
+            }
+                };
+
+                grid.Children.Add(new TextBlock { Text = "Installation Path:", Margin = new Thickness(5) });
+                Grid.SetRow(grid.Children[^1], 0);
+                Grid.SetColumn(grid.Children[^1], 0);
+
+                txtInstallPath = new TextBox { Margin = new Thickness(5), Text = vsPaths.InstPth ?? "" };
+                grid.Children.Add(txtInstallPath);
+                Grid.SetRow(grid.Children[^1], 0);
+                Grid.SetColumn(grid.Children[^1], 1);
+
+                btnBrowseInstall = new Button { Content = "Browse", Margin = new Thickness(5) };
+                btnBrowseInstall.Click += BtnBrowseInstall_Click;
+                grid.Children.Add(btnBrowseInstall);
+                Grid.SetRow(grid.Children[^1], 0);
+                Grid.SetColumn(grid.Children[^1], 2);
+
+                grid.Children.Add(new TextBlock { Text = "Executable Path:", Margin = new Thickness(5) });
+                Grid.SetRow(grid.Children[^1], 1);
+                Grid.SetColumn(grid.Children[^1], 0);
+
+                txtExecutablePath = new TextBox { Margin = new Thickness(5), Text = vsPaths.ExecPth ?? "" };
+                grid.Children.Add(txtExecutablePath);
+                Grid.SetRow(grid.Children[^1], 1);
+                Grid.SetColumn(grid.Children[^1], 1);
+
+                btnBrowseExecutable = new Button { Content = "Browse", Margin = new Thickness(5) };
+                btnBrowseExecutable.Click += BtnBrowseExecutable_Click;
+                grid.Children.Add(btnBrowseExecutable);
+                Grid.SetRow(grid.Children[^1], 1);
+                Grid.SetColumn(grid.Children[^1], 2);
+
+                grid.Children.Add(new TextBlock { Text = "Announcer Config Path:", Margin = new Thickness(5) });
+                Grid.SetRow(grid.Children[^1], 2);
+                Grid.SetColumn(grid.Children[^1], 0);
+
+                txtAnnouncerConfigPath = new TextBox { Margin = new Thickness(5), Text = MainWindow.ConfigPath ?? "" };
+                grid.Children.Add(txtAnnouncerConfigPath);
+                Grid.SetRow(grid.Children[^1], 2);
+                Grid.SetColumn(grid.Children[^1], 1);
+
+                btnBrowseAnnouncerConfig = new Button { Content = "Browse", Margin = new Thickness(5) };
+                btnBrowseAnnouncerConfig.Click += BtnBrowseAnnouncerConfig_Click;
+                grid.Children.Add(btnBrowseAnnouncerConfig);
+                Grid.SetRow(grid.Children[^1], 2);
+                Grid.SetColumn(grid.Children[^1], 2);
+
+                btnSave = new Button { Content = "Save", Margin = new Thickness(5), HorizontalAlignment = HorizontalAlignment.Right };
+                btnSave.Click += BtnSave_Click;
+                grid.Children.Add(btnSave);
+                Grid.SetRow(grid.Children[^1], 3);
+                Grid.SetColumn(grid.Children[^1], 1);
+                Grid.SetColumnSpan(grid.Children[^1], 2);
+
+                Content = grid;
+            }
+
+            private async void BtnBrowseInstall_Click(object? sender, RoutedEventArgs e)
+            {
+                var path = await SelectFolder("Select Vintage Story Server Installation Folder");
+                if (path != null)
+                {
+                    txtInstallPath.Text = path;
+                }
+            }
+
+            private async void BtnBrowseExecutable_Click(object? sender, RoutedEventArgs e)
+            {
+                var path = await SelectFile("Select Vintage Story Server Executable", ExecutableFileTypes);
+                if (path != null)
+                {
+                    txtExecutablePath.Text = path;
+                }
+            }
+
+            private async void BtnBrowseAnnouncerConfig_Click(object? sender, RoutedEventArgs e)
+            {
+                var path = await SelectFile("Select Announcer Config File", JsonFileTypes);
+                if (path != null)
+                {
+                    txtAnnouncerConfigPath.Text = path;
+                }
+            }
+
+            private async void BtnSave_Click(object? sender, RoutedEventArgs e)
+            {
+                if (string.IsNullOrEmpty(txtInstallPath.Text) || string.IsNullOrEmpty(txtExecutablePath.Text) || string.IsNullOrEmpty(txtAnnouncerConfigPath.Text))
+                {
+                    await MessageBoxManager.GetMessageBoxStandard(
+                        new MessageBoxStandardParams
+                        {
+                            ContentTitle = "Error",
+                            ContentMessage = "All paths must be filled.",
+                            ButtonDefinitions = ButtonEnum.Ok
+                        }).ShowAsync();
+                    return;
+                }
+
+                vsPaths.StPth(txtInstallPath.Text, txtExecutablePath.Text);
+                MainWindow.ConfigPath = txtAnnouncerConfigPath.Text;
+                Close();
+            }
+
+            private async Task<string?> SelectFolder(string title)
+            {
+                var folderResult = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+                {
+                    Title = title,
+                    AllowMultiple = false
+                });
+
+                return folderResult.Count > 0 ? folderResult[0].Path.LocalPath : null;
+            }
+
+            private async Task<string?> SelectFile(string title, string[] fileTypes)
+            {
+                var fileResult = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+                {
+                    Title = title,
+                    AllowMultiple = false,
+                    FileTypeFilter =
+                    [
+                        new FilePickerFileType("Supported Files")
+                    {
+                         Patterns = fileTypes.Select(ft => $"*.{ft}").ToArray()
+                        }
+                    ]
+                });
+
+                return fileResult.Count > 0 ? fileResult[0].Path.LocalPath : null;
+            }
+        }
+
+        public class ResAnnWin : Window
+        {
+            public ResAnnWin()
+            {
+                Title = "Restart Announcements";
+                Width = 400;
+                Height = 300;
+                // add stuff later
+            }
+        }
         private async Task InitAsyc()
         {
             await InitVSPath();
@@ -115,47 +323,45 @@ namespace VsServerConsoleThingy
             }
         }
 
-        private async Task<string?> AskDir(string title)
-        {
-            var topLevel = TopLevel.GetTopLevel(this);
-            if (topLevel != null)
-            {
-                var folders = await topLevel.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
-                {
-                    Title = title,
-                    AllowMultiple = false
-                });
-                if (folders.Count > 0)
-                {
-                    return folders[0].Path.LocalPath;
-                }
-            }
-            return null;
-        }
+        //        private async Task<string?> AskDir(string title)
+        //        {
+        //            var topLevel = TopLevel.GetTopLevel(this);
+        //            if (topLevel != null)
+        //            {
+        //               var folders = await topLevel.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        //                {
+        //                    Title = title,
+        //                    AllowMultiple = false
+        //                });
+        //                if (folders.Count > 0)
+        //                {
+        //                    return folders[0].Path.LocalPath;
+        //                }
+        //            }
+        //            return null;
+        //        }
 
         public enum PthSelTyp
         {
-            VintageStoryInstallation,
-            AnnouncerConfig
+            VSInst,
+            AnnConf
         }
         private async Task SelDialog()
         {
-            var messageBox = MessageBoxManager.GetMessageBoxStandard(
+            var MsgBx = MessageBoxManager.GetMessageBoxStandard(
                 new MessageBoxStandardParams
                 {
                     ContentTitle = "Vintage Story Server Executable Not Found",
                     ContentMessage = "The Vintage Story Server executable couldn't be found automatically. Would you like to select the installation folder manually?",
                     ButtonDefinitions = ButtonEnum.YesNo
                 });
-            var result = await messageBox.ShowAsync();
-            if (result == ButtonResult.Yes)
+            var Res = await MsgBx.ShowAsync();
+            if (Res == ButtonResult.Yes)
             {
                 try
                 {
-                    if (vsPaths == null)
-                    {
-                        vsPaths = new VSPths();
-                    }
+                    vsPaths ??= new VSPths();
+
                     await vsPaths.ManPth();
                     if (string.IsNullOrEmpty(vsPaths.InstPth) || string.IsNullOrEmpty(vsPaths.ExecPth))
                     {
@@ -198,7 +404,7 @@ namespace VsServerConsoleThingy
                         return;
                     }
 
-                    var paragraph = new Paragraph
+                    var Par = new Paragraph
                     {
                         Margin = new Thickness(0),
                         LineHeight = 0
@@ -207,11 +413,11 @@ namespace VsServerConsoleThingy
                     {
                         Foreground = new SolidColorBrush(color)
                     };
-                    paragraph.Inlines.Add(run);
+                    Par.Inlines.Add(run);
 
-                    var scrollViewer = richTextBox.FindDescendantOfType<ScrollViewer>();
+                    var Scrl = richTextBox.FindDescendantOfType<ScrollViewer>();
 
-                    richTextBox.FlowDoc.Blocks.Add(paragraph);
+                    richTextBox.FlowDoc.Blocks.Add(Par);
 
                 }
                 else if (txtConsole is TextBox textBox)
@@ -259,10 +465,12 @@ namespace VsServerConsoleThingy
                     AcceptsReturn = true,
                     TextWrapping = TextWrapping.Wrap,
                     IsReadOnly = true,
-                    Focusable = false
                 };
+                textBox.Classes.Add("NoFoc");
+
                 grid.Children.Add(textBox);
                 txtConsole = textBox;
+
             }
 
             if (AdminCheck != null)
@@ -270,6 +478,8 @@ namespace VsServerConsoleThingy
                 AdminCheck.IsChecked = useRichTextBox;
             }
         }
+
+
 
 
         private void SrvInputDat(object? sender, Avalonia.Input.KeyEventArgs e)
@@ -285,8 +495,6 @@ namespace VsServerConsoleThingy
                 }
             }
         }
-
-
 
         //private void AppendPrompt()
         //{
@@ -334,8 +542,9 @@ namespace VsServerConsoleThingy
                 {
                     serverProcess = null;
                     btnStopServer.IsEnabled = true;
-                    //AppendPrompt();
                     currentPlayers.Clear();
+                    playerCount = 0;
+                    PlayerUpdate();
                 }
             }
         }
@@ -364,14 +573,56 @@ namespace VsServerConsoleThingy
         {
             if (restartSettings.StartAutomatically && (serverProcess == null || serverProcess.HasExited) && vsPaths != null && !string.IsNullOrEmpty(vsPaths.ExecPth))
             {
+                playerCount = 0;
+                PlayerUpdate();
                 BtnStrtSrvClk(null, null);
             }
         }
+
+        private async Task<string?> AnnConfDir()
+        {
+            var topLevel = TopLevel.GetTopLevel(this);
+            if (topLevel != null)
+            {
+                var FsRes = await topLevel.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+                {
+                    Title = "Select Announcer Config Path",
+                    AllowMultiple = false,
+                    FileTypeFilter = [JsonFileType]
+                });
+
+                if (FsRes.Count > 0)
+                {
+                    return FsRes[0].Path.LocalPath;
+                }
+            }
+            return null;
+        }
+
+        //private void UpConfPth(string newPath)
+        //{
+        //    configPath = newPath;
+        //}
 
         private async Task LdAnn()
         {
             try
             {
+                if (!File.Exists(ConfigPath))
+                {
+                    string? newPath = await AnnConfDir();
+                    if (newPath != null)
+                    {
+                        ConfigPath = newPath;
+                    }
+                    else
+                    {
+                        announcements.Add(new Announcement { Hour = 6, Minute = 0, Message = "placeholder announcement" });
+                        await SvAnn();
+                        return;
+                    }
+                }
+
                 string? configDir = Path.GetDirectoryName(configPath);
                 if (configDir == null)
                 {
@@ -384,12 +635,7 @@ namespace VsServerConsoleThingy
                     Directory.CreateDirectory(configDir);
                 }
 
-                if (!File.Exists(configPath))
-                {
-                    announcements.Add(new Announcement { Hour = 6, Minute = 0, Message = "placeholder announcement" });
-                    await SvAnn();
-                }
-                else
+                if (File.Exists(configPath))
                 {
                     string json = await File.ReadAllTextAsync(configPath);
                     var loadedAnnouncements = JsonSerializer.Deserialize<List<Announcement>>(json, jsonOptions);
@@ -398,6 +644,11 @@ namespace VsServerConsoleThingy
                         announcements.Clear();
                         announcements.AddRange(loadedAnnouncements);
                     }
+                }
+                else
+                {
+                    announcements.Add(new Announcement { Hour = 6, Minute = 0, Message = "placeholder announcement" });
+                    await SvAnn();
                 }
 
                 UpAnnLst();
@@ -432,6 +683,7 @@ namespace VsServerConsoleThingy
                     if (!currentPlayers.Contains(playerName))
                     {
                         currentPlayers.Add(playerName);
+                        playerCount++;
                         Debug.WriteLine($"Player added: {playerName}");
                     }
                 }
@@ -439,6 +691,7 @@ namespace VsServerConsoleThingy
                 {
                     if (currentPlayers.Remove(playerName))
                     {
+                        playerCount--;
                         Debug.WriteLine($"Player removed: {playerName}");
                     }
                     else
@@ -446,9 +699,35 @@ namespace VsServerConsoleThingy
                         Debug.WriteLine($"Failed to remove player: {playerName}");
                     }
                 }
+
+                PlayerUpdate();
             });
         }
 
+        private void PlayerUpdate()
+        {
+            Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                var oldCountItem = currentPlayers.FirstOrDefault(item => item.StartsWith("Players Online:"));
+                if (oldCountItem != null)
+                {
+                    currentPlayers.Remove(oldCountItem);
+                }
+
+                currentPlayers.Insert(0, $"Players Online: {playerCount}");
+            });
+        }
+
+
+
+        private void PnBtnClk(object sender, RoutedEventArgs e)
+        {
+            var sidebar = this.FindControl<SplitView>("Sidebar");
+            if (sidebar != null)
+            {
+                sidebar.IsPaneOpen = !sidebar.IsPaneOpen;
+            }
+        }
 
 
 
@@ -594,7 +873,7 @@ namespace VsServerConsoleThingy
             if (File.Exists(restartSettingsPath))
             {
                 string json = File.ReadAllText(restartSettingsPath);
-                var loadedSettings = JsonSerializer.Deserialize<RestartSettings>(json, jsonOptions);
+                var loadedSettings = JsonSerializer.Deserialize<ResSet>(json, jsonOptions);
                 if (loadedSettings != null)
                 {
                     restartSettings.Enabled = loadedSettings.Enabled;
@@ -733,7 +1012,7 @@ namespace VsServerConsoleThingy
         }
     }
 
-    public class RestartSettings
+    public class ResSet
     {
         public bool Enabled { get; set; }
         public bool IsDaily { get; set; }
@@ -743,6 +1022,7 @@ namespace VsServerConsoleThingy
         public bool StartAutomatically { get; set; } = true;
         public DateTime LastRestartDate { get; set; }
         public bool UseRichTextBox { get; set; } = false;
+
     }
 
     public class Announcement
