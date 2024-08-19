@@ -31,8 +31,9 @@ namespace VsServerConsoleThingy
         public HashSet<string> WeeklyUniquePlayers { get; set; } = [];
         public DateTime LastWeekReset { get; set; } = DateTime.MinValue;
         public bool UseRichTextBox { get; set; } = false;
-        public string BackupFolderPath { get; set; } = string.Empty;
+        public string BackupFolderPath { get; set; } = Path.Combine(MainWindow.GetAppRootDirectory(), "Backups");
         public int MaxBackups { get; set; } = 5;
+
 
     }
 
@@ -41,11 +42,18 @@ namespace VsServerConsoleThingy
         private VSPths? vsPaths;
         private ServerManagerConfig config = new();
         public ServerManagerConfig Config => config;
+
+        public static string GetAppRootDirectory()
+        {
+            return AppDomain.CurrentDomain.BaseDirectory;
+        }
+
         private static readonly string ServerManagerConfigPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "VsServerConsoleThingy",
+            GetAppRootDirectory(),
             "ServerManagerConfig.json");
+
         private readonly List<Announcement> announcements = [];
+
         public static string ConfigPath
         {
             get => _configPath;
@@ -55,16 +63,17 @@ namespace VsServerConsoleThingy
                 SaveConfigPath();
             }
         }
+
         private static string _configPath = Path.Combine(
                                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                                 "vintagestorydata",
                                 "ModConfig",
                                 "AnnouncerConfig.json");
+
         private readonly ResSet restartSettings = new();
+
         private readonly string restartSettingsPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "vintagestorydata",
-            "ModConfig",
+            GetAppRootDirectory(),
             "ResSet.json");
         private readonly ObservableCollection<string> currentPlayers = [];
         private static readonly JsonSerializerOptions jsonOptions = new() { WriteIndented = true };
@@ -73,6 +82,7 @@ namespace VsServerConsoleThingy
         private readonly DispatcherTimer restartTimer = new();
         private Control? txtConsole;
         private Process? serverProcess;
+        private const int MAX_CONSOLE_LINES = 1000;
 
 
         private HashSet<string> totalUniquePlayers = [];
@@ -239,7 +249,7 @@ namespace VsServerConsoleThingy
 
         private void SavePlayerCounts()
         {
-            string countsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "VsServerConsoleThingy", "player_counts.json");
+            string countsPath = Path.Combine(GetAppRootDirectory(), "player_counts.json");
             var data = new
             {
                 TotalUniquePlayers = totalUniquePlayers.ToList(),
@@ -251,7 +261,7 @@ namespace VsServerConsoleThingy
 
         private void LoadPlayerCounts()
         {
-            string countsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "VsServerConsoleThingy", "player_counts.json");
+            string countsPath = Path.Combine(GetAppRootDirectory(), "player_counts.json");
 
             if (File.Exists(countsPath))
             {
@@ -413,14 +423,28 @@ namespace VsServerConsoleThingy
                     };
 
                     richTextBox.FlowDoc.Blocks.Add(paragraph);
+
+                    while (richTextBox.FlowDoc.Blocks.Count > MAX_CONSOLE_LINES)
+                    {
+                        richTextBox.FlowDoc.Blocks.RemoveAt(0);
+                    }
                 }
                 else if (txtConsole is TextBox textBox)
                 {
                     textBox.Text += text;
+
+                    var lines = textBox.Text.Split('\n');
+                    if (lines.Length > MAX_CONSOLE_LINES)
+                    {
+                        textBox.Text = string.Join("\n", lines.Skip(lines.Length - MAX_CONSOLE_LINES));
+                    }
+
                     textBox.CaretIndex = textBox.Text.Length;
                 }
             });
         }
+
+
 
         private void Consoleswap(bool useRichTextBox)
         {

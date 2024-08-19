@@ -145,7 +145,7 @@ namespace VsServerConsoleThingy
             };
 
             string json = JsonSerializer.Serialize(paths);
-            File.WriteAllText(ConfigFileName, json);
+            File.WriteAllText(Path.Combine(MainWindow.GetAppRootDirectory(), ConfigFileName), json);
         }
 
         public void StPth(string installPath, string execPath, string annConfPath)
@@ -159,7 +159,7 @@ namespace VsServerConsoleThingy
 
         private void LdPth()
         {
-            if (File.Exists(ConfigFileName))
+            if (File.Exists(Path.Combine(MainWindow.GetAppRootDirectory(), ConfigFileName)))
             {
                 try
                 {
