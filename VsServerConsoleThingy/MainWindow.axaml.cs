@@ -31,7 +31,8 @@ namespace VsServerConsoleThingy
         public HashSet<string> WeeklyUniquePlayers { get; set; } = [];
         public DateTime LastWeekReset { get; set; } = DateTime.MinValue;
         public bool UseRichTextBox { get; set; } = false;
-
+        public string BackupFolderPath { get; set; } = string.Empty;
+        public int MaxBackups { get; set; } = 5;
 
     }
 
@@ -39,6 +40,7 @@ namespace VsServerConsoleThingy
     {
         private VSPths? vsPaths;
         private ServerManagerConfig config = new();
+        public ServerManagerConfig Config => config;
         private static readonly string ServerManagerConfigPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "VsServerConsoleThingy",
@@ -130,6 +132,8 @@ namespace VsServerConsoleThingy
             LdAnn2();
             LoadPlayerCounts();
             LoadConfig();
+            BackupNum.Text = config.MaxBackups.ToString();
+            BackupNum.LostFocus += BackupNum_LostFocus;
         }
 
         public async void ConfPathabcdefg(string newPath)
@@ -137,6 +141,19 @@ namespace VsServerConsoleThingy
             ConfigPath = newPath;
             await SaveConfig();
             await LdAnn();
+        }
+
+        private async void BackupNum_LostFocus(object? sender, RoutedEventArgs e)
+        {
+            if (int.TryParse(BackupNum.Text, out int maxBackups))
+            {
+                config.MaxBackups = maxBackups;
+                await SaveConfig();
+            }
+            else
+            {
+                BackupNum.Text = config.MaxBackups.ToString();
+            }
         }
 
         private void LoadConfig()
@@ -167,7 +184,7 @@ namespace VsServerConsoleThingy
             }
         }
 
-        private async Task SaveConfig()
+        public async Task SaveConfig()
         {
             string json = JsonSerializer.Serialize(config, jsonOptions);
             await File.WriteAllTextAsync(ServerManagerConfigPath, json).ConfigureAwait(false);
@@ -178,6 +195,14 @@ namespace VsServerConsoleThingy
             var dialog = new PathSettingsWindow(this);
             await dialog.ShowDialog(this);
         }
+        private void BackupNum_KeyDown(object sender, Avalonia.Input.KeyEventArgs e)
+        {
+            if (!char.IsDigit((char)e.Key) && e.Key != Avalonia.Input.Key.Back)
+            {
+                e.Handled = true;
+            }
+        }
+
 
         public void ResAnnClk(object sender, RoutedEventArgs e)
         {
@@ -312,7 +337,7 @@ namespace VsServerConsoleThingy
             }
             catch (Exception ex)
             {
-                TxtXChng($"Error initializing VSPths: {ex.Message}" + Environment.NewLine, Colors.Red);
+                await TxtXChng($"Error initializing VSPths: {ex.Message}" + Environment.NewLine, Colors.Red);
                 vsPaths = null;
             }
         }
@@ -362,7 +387,7 @@ namespace VsServerConsoleThingy
             }
         }
 
-        private async void TxtXChng(string text, Color color)
+        private async Task TxtXChng(string text, Color color)
         {
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
@@ -451,7 +476,7 @@ namespace VsServerConsoleThingy
 
 
 
-        private void SrvInputDat(object? sender, Avalonia.Input.KeyEventArgs e)
+        private async void SrvInputDat(object? sender, Avalonia.Input.KeyEventArgs e)
         {
             if (e.Key == Avalonia.Input.Key.Enter && txtServerInput != null)
             {
@@ -459,13 +484,13 @@ namespace VsServerConsoleThingy
                 if (!string.IsNullOrEmpty(input) && serverProcess != null && !serverProcess.HasExited)
                 {
                     serverProcess.StandardInput.WriteLine(input);
-                    TxtXChng($"Admin Input: {input}" + Environment.NewLine, Colors.MediumPurple);
+                    await TxtXChng($"Admin Input: {input}" + Environment.NewLine, Colors.MediumPurple);
                     txtServerInput.Text = string.Empty;
                 }
             }
         }
 
-        private async Task StpSrvAsync()
+        private async Task StpSrv()
         {
             if (serverProcess != null && !serverProcess.HasExited)
             {
@@ -475,25 +500,37 @@ namespace VsServerConsoleThingy
                     if (AutoSaveEnabled)
                     {
                         serverProcess.StandardInput.WriteLine("/autosavenow");
-                        TxtXChng("saving..." + Environment.NewLine, Colors.Green);
+                        await TxtXChng("saving..." + Environment.NewLine, Colors.Green);
                         await Task.Delay(2000);
                     }
+
+                    if (Backup.IsChecked == true)
+                    {
+                        serverProcess.StandardInput.WriteLine("/genbackup");
+                        await TxtXChng("Generating backup..." + Environment.NewLine, Colors.Green);
+                        await Task.Delay(5000);
+                    }
+
                     serverProcess.StandardInput.WriteLine("/stop");
-                    TxtXChng("stopping..." + Environment.NewLine, Colors.White);
+                    await TxtXChng("stopping..." + Environment.NewLine, Colors.White);
                     bool exited = await Task.Run(() => serverProcess.WaitForExit(10000));
                     if (exited)
                     {
-                        TxtXChng("Server has stopped" + Environment.NewLine, Colors.White);
+                        await TxtXChng("Server has stopped" + Environment.NewLine, Colors.White);
+                        if (Backup.IsChecked == true)
+                        {
+                            await ManageBackups();
+                        }
                     }
                     else
                     {
-                        TxtXChng("Server did not stop within the expected time. Forcing shutdown..." + Environment.NewLine, Colors.Red);
+                        await TxtXChng("Server did not stop within the expected time. Forcing shutdown..." + Environment.NewLine, Colors.Red);
                         serverProcess.Kill();
                     }
                 }
                 catch (Exception ex)
                 {
-                    TxtXChng($"Error while stopping the server: {ex.Message}" + Environment.NewLine, Colors.Red);
+                    await TxtXChng($"Error while stopping the server: {ex.Message}" + Environment.NewLine, Colors.Red);
                 }
                 finally
                 {
@@ -506,12 +543,51 @@ namespace VsServerConsoleThingy
             }
         }
 
+        private async Task ManageBackups()
+        {
+            int maxBackups = config.MaxBackups;
+            if (maxBackups > 0)
+            {
+                string backupFolder = config.BackupFolderPath;
+                if (Directory.Exists(backupFolder))
+                {
+                    var backupFiles = new DirectoryInfo(backupFolder)
+                        .GetFiles("*.vcdbs")
+                        .OrderByDescending(f => f.CreationTime)
+                        .ToList();
+
+                    while (backupFiles.Count > maxBackups)
+                    {
+                        var oldestBackup = backupFiles.Last();
+                        try
+                        {
+                            await Task.Run(() => File.Delete(oldestBackup.FullName));
+                            await TxtXChng($"Deleted old backup: {oldestBackup.Name}" + Environment.NewLine, Colors.Orange);
+                        }
+                        catch (Exception ex)
+                        {
+                            await TxtXChng($"Error deleting backup {oldestBackup.Name}: {ex.Message}" + Environment.NewLine, Colors.Red);
+                        }
+                        backupFiles.RemoveAt(backupFiles.Count - 1);
+                    }
+                }
+                else
+                {
+                    await TxtXChng($"Backup folder not found: {backupFolder}" + Environment.NewLine, Colors.Red);
+                }
+            }
+            else
+            {
+                await TxtXChng("Invalid backup number. Please enter a positive integer." + Environment.NewLine, Colors.Red);
+            }
+        }
+
         private async void MainCls(object? sender, System.ComponentModel.CancelEventArgs e)
         {
             if (serverProcess != null && !serverProcess.HasExited)
             {
                 e.Cancel = true;
-                await StpSrvAsync();
+                await StpSrv();
                 SavePlayerCounts();
                 Close();
             }
@@ -588,7 +664,7 @@ namespace VsServerConsoleThingy
             }
             catch (Exception ex)
             {
-                TxtXChng($"Error loading announcements: {ex.Message}" + Environment.NewLine, Colors.Red);
+                await TxtXChng($"Error loading announcements: {ex.Message}" + Environment.NewLine, Colors.Red);
             }
         }
 
@@ -686,11 +762,11 @@ namespace VsServerConsoleThingy
         }
 
 
-        private void BtnStrtSrvClk(object? sender, RoutedEventArgs? e)
+        private async void BtnStrtSrvClk(object? sender, RoutedEventArgs? e)
         {
             if (vsPaths == null || string.IsNullOrEmpty(vsPaths.ExecPth))
             {
-                TxtXChng("Vintage Story paths are not initialized." + Environment.NewLine, Colors.Red);
+                await TxtXChng("Vintage Story paths are not initialized." + Environment.NewLine, Colors.Red);
                 return;
             }
 
@@ -714,7 +790,7 @@ namespace VsServerConsoleThingy
                 serverProcess.Start();
                 serverProcess.BeginOutputReadLine();
                 serverProcess.BeginErrorReadLine();
-                TxtXChng("Server started." + Environment.NewLine, Colors.White);
+                await TxtXChng("Server started." + Environment.NewLine, Colors.White);
             }
         }
 
@@ -747,7 +823,7 @@ namespace VsServerConsoleThingy
                             await UpPlayLst(playerName, false);
                         }
 
-                        TxtXChng(e.Data + Environment.NewLine, textColor);
+                        await TxtXChng(e.Data + Environment.NewLine, textColor);
                     });
                 });
             }
@@ -759,19 +835,20 @@ namespace VsServerConsoleThingy
         {
             if (!string.IsNullOrEmpty(e.Data))
             {
-                Dispatcher.UIThread.InvokeAsync(() =>
+                Dispatcher.UIThread.InvokeAsync(async () =>
                 {
-                    TxtXChng(e.Data + Environment.NewLine, Colors.Red);
+                    await TxtXChng(e.Data + Environment.NewLine, Colors.Red);
                 });
             }
         }
 
+
         private async void BtnStpSrv(object? sender, RoutedEventArgs e)
         {
-            await StpSrvAsync();
+            await StpSrv();
         }
 
-        private void Whitelister(object? sender, Avalonia.Input.KeyEventArgs e)
+        private async void Whitelister(object? sender, Avalonia.Input.KeyEventArgs e)
         {
             if (e.Key == Avalonia.Input.Key.Enter && whitelist != null && serverProcess != null && !serverProcess.HasExited)
             {
@@ -779,7 +856,7 @@ namespace VsServerConsoleThingy
                 if (!string.IsNullOrEmpty(playerName))
                 {
                     serverProcess.StandardInput.WriteLine($"/whitelist {playerName} add");
-                    TxtXChng($"Whitelisting {playerName}..." + Environment.NewLine, Colors.White);
+                    await TxtXChng($"Whitelisting {playerName}..." + Environment.NewLine, Colors.White);
                     whitelist.Text = string.Empty;
                 }
             }
@@ -788,7 +865,7 @@ namespace VsServerConsoleThingy
         {
             SvResSet();
         }
-        private void Blacklister(object? sender, Avalonia.Input.KeyEventArgs e)
+        private async void Blacklister(object? sender, Avalonia.Input.KeyEventArgs e)
         {
             if (e.Key == Avalonia.Input.Key.Enter && blacklist != null && serverProcess != null && !serverProcess.HasExited)
             {
@@ -796,7 +873,7 @@ namespace VsServerConsoleThingy
                 if (!string.IsNullOrEmpty(playerName))
                 {
                     serverProcess.StandardInput.WriteLine($"/ban {playerName}");
-                    TxtXChng($"Banning {playerName}..." + Environment.NewLine, Colors.Red);
+                    await TxtXChng($"Banning {playerName}..." + Environment.NewLine, Colors.Red);
                     blacklist.Text = string.Empty;
                 }
             }
@@ -964,7 +1041,7 @@ namespace VsServerConsoleThingy
 
         private async Task RestartServer()
         {
-            await StpSrvAsync();
+            await StpSrv();
             BtnStrtSrvClk(null, null);
             restartSettings.LastResDt = DateTime.Now;
             lastAnnouncementTime = DateTime.MinValue;
@@ -1042,6 +1119,8 @@ namespace VsServerConsoleThingy
         private static readonly string[] ExecutableFileTypes = ["exe"];
         private static readonly string[] JsonFileTypes = ["json"];
         private readonly MainWindow mainWindow;
+        private readonly TextBox BackupFolderPath;
+        private readonly Button BtnBackupFolder;
 
         public PathSettingsWindow(MainWindow mainWindow)
         {
@@ -1117,6 +1196,23 @@ namespace VsServerConsoleThingy
             Grid.SetRow(grid.Children[^1], 2);
             Grid.SetColumn(grid.Children[^1], 2);
 
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+            grid.Children.Add(new TextBlock { Text = "Backup Folder Path:", Margin = new Thickness(5) });
+            Grid.SetRow(grid.Children[^1], 3);
+            Grid.SetColumn(grid.Children[^1], 0);
+
+            BackupFolderPath = new TextBox { Margin = new Thickness(5), Text = mainWindow.Config.BackupFolderPath ?? string.Empty };
+            grid.Children.Add(BackupFolderPath);
+            Grid.SetRow(grid.Children[^1], 3);
+            Grid.SetColumn(grid.Children[^1], 1);
+
+            BtnBackupFolder = new Button { Content = "Browse", Margin = new Thickness(5) };
+            BtnBackupFolder.Click += BrwsBackupFolder;
+            grid.Children.Add(BtnBackupFolder);
+            Grid.SetRow(grid.Children[^1], 3);
+            Grid.SetColumn(grid.Children[^1], 2);
+
             btnSave = new Button { Content = "Save", Margin = new Thickness(5), HorizontalAlignment = HorizontalAlignment.Right };
             btnSave.Click += BtnSv;
             grid.Children.Add(btnSave);
@@ -1125,6 +1221,15 @@ namespace VsServerConsoleThingy
             Grid.SetColumnSpan(grid.Children[^1], 2);
 
             Content = grid;
+        }
+
+        private async void BrwsBackupFolder(object? _sender, RoutedEventArgs _e)
+        {
+            var path = await SelFol("Select Backup Folder");
+            if (path != null)
+            {
+                BackupFolderPath.Text = path;
+            }
         }
 
         public void UpdateConfigPath(string newPath)
@@ -1160,7 +1265,8 @@ namespace VsServerConsoleThingy
 
         private async void BtnSv(object? _sender, RoutedEventArgs _e)
         {
-            if (string.IsNullOrEmpty(InstPath.Text) || string.IsNullOrEmpty(ExecPath.Text) || string.IsNullOrEmpty(AnnConfPath.Text))
+            if (string.IsNullOrEmpty(InstPath.Text) || string.IsNullOrEmpty(ExecPath.Text) ||
+                string.IsNullOrEmpty(AnnConfPath.Text) || string.IsNullOrEmpty(BackupFolderPath.Text))
             {
                 await MessageBoxManager.GetMessageBoxStandard(
                     new MessageBoxStandardParams
@@ -1174,6 +1280,8 @@ namespace VsServerConsoleThingy
 
             vsPaths.StPth(InstPath.Text, ExecPath.Text, AnnConfPath.Text);
             UpdateConfigPath(AnnConfPath.Text);
+            mainWindow.Config.BackupFolderPath = BackupFolderPath.Text;
+            await mainWindow.SaveConfig();
             Close();
         }
 
