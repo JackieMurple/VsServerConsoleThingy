@@ -1,10 +1,10 @@
-﻿using System;
-using System.IO;
-using System.Threading.Tasks;
-using System.Text.Json;
-using Avalonia.Controls;
+﻿using Avalonia.Controls;
 using Avalonia.Platform.Storage;
+using System;
+using System.IO;
 using System.Runtime.InteropServices;
+using System.Text.Json;
+using System.Threading.Tasks;
 
 namespace VsServerConsoleThingy
 {
@@ -12,13 +12,14 @@ namespace VsServerConsoleThingy
     {
         public string? InstPth { get; private set; }
         public string? ExecPth { get; private set; }
+        public string? AnnConfPth { get; private set; }
 
         private const string ConfigFileName = "vspaths.json";
 
         public VSPths()
         {
             LdPth();
-            if (string.IsNullOrEmpty(InstPth))
+            if (string.IsNullOrEmpty(InstPth) || string.IsNullOrEmpty(ExecPth))
             {
                 DetPth();
             }
@@ -29,6 +30,7 @@ namespace VsServerConsoleThingy
         {
             public string? InstallationPath { get; set; }
             public string? ServerExecutablePath { get; set; }
+            public string? AnnouncerConfigPath { get; set; }
         }
 
 
@@ -137,17 +139,20 @@ namespace VsServerConsoleThingy
             var paths = new PathsConfig
             {
                 InstallationPath = InstPth,
-                ServerExecutablePath = ExecPth
+                ServerExecutablePath = ExecPth,
+                AnnouncerConfigPath = AnnConfPth
             };
 
             string json = JsonSerializer.Serialize(paths);
             File.WriteAllText(ConfigFileName, json);
         }
 
-        public void StPth(string installPath, string execPath)
+        public void StPth(string installPath, string execPath, string annConfPath)
         {
             InstPth = installPath;
             ExecPth = execPath;
+            AnnConfPth = annConfPath;
+            MainWindow.ConfigPath = annConfPath;
             SvPth();
         }
 
@@ -164,6 +169,7 @@ namespace VsServerConsoleThingy
                     {
                         InstPth = paths.InstallationPath;
                         ExecPth = paths.ServerExecutablePath;
+                        AnnConfPth = paths.AnnouncerConfigPath;
                     }
                 }
                 catch (JsonException ex)
@@ -172,5 +178,7 @@ namespace VsServerConsoleThingy
                 }
             }
         }
+
+
     }
 }

@@ -1,27 +1,23 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using AvRichTextBox;
+using MsBox.Avalonia;
+using MsBox.Avalonia.Dto;
+using MsBox.Avalonia.Enums;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Collections.Specialized;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
-using System.Collections.Concurrent;
-using MsBox.Avalonia.Dto;
-using MsBox.Avalonia.Enums;
-using MsBox.Avalonia;
-using Avalonia.Platform.Storage;
-using Avalonia.Styling;
-using Avalonia.Markup.Xaml.Templates;
-using Avalonia.Layout;
 
 
 namespace VsServerConsoleThingy
@@ -30,11 +26,18 @@ namespace VsServerConsoleThingy
     public partial class MainWindow : Window
     {
         private VSPths? vsPaths;
-        private static readonly string[] ExecutableFileTypes = ["exe", "dll"];
-        private static readonly string[] JsonFileTypes = ["json"];
         private readonly List<Announcement> announcements = [];
-        public static string? ConfigPath { get; set; }
-        private readonly string configPath;
+        public static string ConfigPath
+        {
+            get => _configPath;
+            set
+            {
+                _configPath = value;
+                SaveConfigPath();
+            }
+        }
+        private static string _configPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "vintagestorydata", "ModConfig", "AnnouncerConfig.json");
+        //private readonly string configPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "vintagestorydata", "ModConfig", "AnnouncerConfig.json");
         private readonly ResSet restartSettings = new();
         private readonly string restartSettingsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "vintagestorydata", "ModConfig", "ResSet.json");
         private readonly DispatcherTimer restartTimer = new();
@@ -44,14 +47,41 @@ namespace VsServerConsoleThingy
         private Process? serverProcess;
         private static readonly FilePickerFileType JsonFileType = new("JSON Files") { Patterns = ["*.json"] };
         private int playerCount = 0;
+        private static void SaveConfigPath()
+        {
+            string configFile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "VsServerConsoleThingy", "config.json");
+            string? directory = Path.GetDirectoryName(configFile);
+            if (!string.IsNullOrEmpty(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+            File.WriteAllText(configFile, JsonSerializer.Serialize(new { ConfigPath = _configPath }));
+        }
 
+        private static void LoadConfigPath()
+        {
+            string configFile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "VsServerConsoleThingy", "config.json");
+            if (File.Exists(configFile))
+            {
+                string jsonContent = File.ReadAllText(configFile);
+                using JsonDocument doc = JsonDocument.Parse(jsonContent);
+                JsonElement root = doc.RootElement;
+
+                if (root.TryGetProperty(nameof(ConfigPath), out JsonElement configPathElement))
+                {
+                    _configPath = configPathElement.GetString() ?? _configPath;
+                }
+            }
+        }
+        private HashSet<string> totalUniquePlayers = [];
+        private HashSet<string> weeklyUniquePlayers = [];
+        private DateTime lastWeekReset = DateTime.MinValue;
 
         private bool AutoSaveEnabled => AutoSave?.IsChecked == true;
 
         public MainWindow()
         {
-
-            configPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "vintagestorydata", "ModConfig", "AnnConf.json");
+            LoadConfigPath();
             InitializeComponent();
             DataContext = this;
             _ = InitAsyc();
@@ -94,12 +124,14 @@ namespace VsServerConsoleThingy
             PlayerUpdate();
             AdminCheck.Click += TxtBx;
             Consoleswap(restartSettings.UseRichTextBox);
-            ConfigPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "vintagestorydata", "ModConfig", "AnnConf.json");
+            ConfigPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "vintagestorydata", "ModConfig", "AnnouncerConfig.json");
+            LdAnn2();
+            LoadPlayerCounts();
         }
 
-        private async void PthSetClk(object sender, RoutedEventArgs e)
+        private async void PthSetClk(object _sender, RoutedEventArgs _e)
         {
-            var dialog = new PathSettingsWindow();
+            var dialog = new PathSettingsWindow(this);
             await dialog.ShowDialog(this);
         }
 
@@ -111,173 +143,105 @@ namespace VsServerConsoleThingy
 
         public void UpdatePlayerCounts(int totalPlayers, int weeklyPlayers)
         {
-            TotPlay.Text = totalPlayers.ToString();
-            TotPlayWk.Text = weeklyPlayers.ToString();
+            Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                TotPlay.Text = totalPlayers.ToString();
+                TotPlayWk.Text = weeklyPlayers.ToString();
+            });
+        }
+        public void ConfPathabcdefg(string newPath)
+        {
+            ConfigPath = newPath;
+            LdAnn2();
         }
 
-        public class PathSettingsWindow : Window
+        private void SavePlayerCounts()
         {
-            private readonly TextBox txtInstallPath;
-            private readonly TextBox txtExecutablePath;
-            private readonly TextBox txtAnnouncerConfigPath;
-            private readonly Button btnBrowseInstall;
-            private readonly Button btnBrowseExecutable;
-            private readonly Button btnBrowseAnnouncerConfig;
-            private readonly Button btnSave;
-            private readonly VSPths vsPaths;
-
-            public PathSettingsWindow()
+            string countsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "VsServerConsoleThingy", "player_counts.json");
+            var data = new
             {
-                Title = "Path Settings";
-                Width = 800;
-                Height = 250;
-                vsPaths = new VSPths();
+                TotalUniquePlayers = totalUniquePlayers.ToList(),
+                WeeklyUniquePlayers = weeklyUniquePlayers.ToList(),
+                LastWeekReset = lastWeekReset
+            };
+            File.WriteAllText(countsPath, JsonSerializer.Serialize(data, jsonOptions));
+        }
 
-                var grid = new Grid
+        private void LoadPlayerCounts()
+        {
+            string countsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "VsServerConsoleThingy", "player_counts.json");
+
+            if (File.Exists(countsPath))
+            {
+                string jsonContent = File.ReadAllText(countsPath);
+                if (!string.IsNullOrEmpty(jsonContent))
                 {
-                    RowDefinitions =
-            {
-                new RowDefinition { Height = GridLength.Auto },
-                new RowDefinition { Height = GridLength.Auto },
-                new RowDefinition { Height = GridLength.Auto },
-                new RowDefinition { Height = GridLength.Auto }
-            },
-                    ColumnDefinitions =
-            {
-                new ColumnDefinition { Width = GridLength.Auto },
-                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
-                new ColumnDefinition { Width = GridLength.Auto }
-            }
-                };
-
-                grid.Children.Add(new TextBlock { Text = "Installation Path:", Margin = new Thickness(5) });
-                Grid.SetRow(grid.Children[^1], 0);
-                Grid.SetColumn(grid.Children[^1], 0);
-
-                txtInstallPath = new TextBox { Margin = new Thickness(5), Text = vsPaths.InstPth ?? "" };
-                grid.Children.Add(txtInstallPath);
-                Grid.SetRow(grid.Children[^1], 0);
-                Grid.SetColumn(grid.Children[^1], 1);
-
-                btnBrowseInstall = new Button { Content = "Browse", Margin = new Thickness(5) };
-                btnBrowseInstall.Click += BtnBrowseInstall_Click;
-                grid.Children.Add(btnBrowseInstall);
-                Grid.SetRow(grid.Children[^1], 0);
-                Grid.SetColumn(grid.Children[^1], 2);
-
-                grid.Children.Add(new TextBlock { Text = "Executable Path:", Margin = new Thickness(5) });
-                Grid.SetRow(grid.Children[^1], 1);
-                Grid.SetColumn(grid.Children[^1], 0);
-
-                txtExecutablePath = new TextBox { Margin = new Thickness(5), Text = vsPaths.ExecPth ?? "" };
-                grid.Children.Add(txtExecutablePath);
-                Grid.SetRow(grid.Children[^1], 1);
-                Grid.SetColumn(grid.Children[^1], 1);
-
-                btnBrowseExecutable = new Button { Content = "Browse", Margin = new Thickness(5) };
-                btnBrowseExecutable.Click += BtnBrowseExecutable_Click;
-                grid.Children.Add(btnBrowseExecutable);
-                Grid.SetRow(grid.Children[^1], 1);
-                Grid.SetColumn(grid.Children[^1], 2);
-
-                grid.Children.Add(new TextBlock { Text = "Announcer Config Path:", Margin = new Thickness(5) });
-                Grid.SetRow(grid.Children[^1], 2);
-                Grid.SetColumn(grid.Children[^1], 0);
-
-                txtAnnouncerConfigPath = new TextBox { Margin = new Thickness(5), Text = MainWindow.ConfigPath ?? "" };
-                grid.Children.Add(txtAnnouncerConfigPath);
-                Grid.SetRow(grid.Children[^1], 2);
-                Grid.SetColumn(grid.Children[^1], 1);
-
-                btnBrowseAnnouncerConfig = new Button { Content = "Browse", Margin = new Thickness(5) };
-                btnBrowseAnnouncerConfig.Click += BtnBrowseAnnouncerConfig_Click;
-                grid.Children.Add(btnBrowseAnnouncerConfig);
-                Grid.SetRow(grid.Children[^1], 2);
-                Grid.SetColumn(grid.Children[^1], 2);
-
-                btnSave = new Button { Content = "Save", Margin = new Thickness(5), HorizontalAlignment = HorizontalAlignment.Right };
-                btnSave.Click += BtnSave_Click;
-                grid.Children.Add(btnSave);
-                Grid.SetRow(grid.Children[^1], 3);
-                Grid.SetColumn(grid.Children[^1], 1);
-                Grid.SetColumnSpan(grid.Children[^1], 2);
-
-                Content = grid;
-            }
-
-            private async void BtnBrowseInstall_Click(object? sender, RoutedEventArgs e)
-            {
-                var path = await SelectFolder("Select Vintage Story Server Installation Folder");
-                if (path != null)
-                {
-                    txtInstallPath.Text = path;
-                }
-            }
-
-            private async void BtnBrowseExecutable_Click(object? sender, RoutedEventArgs e)
-            {
-                var path = await SelectFile("Select Vintage Story Server Executable", ExecutableFileTypes);
-                if (path != null)
-                {
-                    txtExecutablePath.Text = path;
-                }
-            }
-
-            private async void BtnBrowseAnnouncerConfig_Click(object? sender, RoutedEventArgs e)
-            {
-                var path = await SelectFile("Select Announcer Config File", JsonFileTypes);
-                if (path != null)
-                {
-                    txtAnnouncerConfigPath.Text = path;
-                }
-            }
-
-            private async void BtnSave_Click(object? sender, RoutedEventArgs e)
-            {
-                if (string.IsNullOrEmpty(txtInstallPath.Text) || string.IsNullOrEmpty(txtExecutablePath.Text) || string.IsNullOrEmpty(txtAnnouncerConfigPath.Text))
-                {
-                    await MessageBoxManager.GetMessageBoxStandard(
-                        new MessageBoxStandardParams
-                        {
-                            ContentTitle = "Error",
-                            ContentMessage = "All paths must be filled.",
-                            ButtonDefinitions = ButtonEnum.Ok
-                        }).ShowAsync();
-                    return;
-                }
-
-                vsPaths.StPth(txtInstallPath.Text, txtExecutablePath.Text);
-                MainWindow.ConfigPath = txtAnnouncerConfigPath.Text;
-                Close();
-            }
-
-            private async Task<string?> SelectFolder(string title)
-            {
-                var folderResult = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
-                {
-                    Title = title,
-                    AllowMultiple = false
-                });
-
-                return folderResult.Count > 0 ? folderResult[0].Path.LocalPath : null;
-            }
-
-            private async Task<string?> SelectFile(string title, string[] fileTypes)
-            {
-                var fileResult = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
-                {
-                    Title = title,
-                    AllowMultiple = false,
-                    FileTypeFilter =
-                    [
-                        new FilePickerFileType("Supported Files")
+                    try
                     {
-                         Patterns = fileTypes.Select(ft => $"*.{ft}").ToArray()
-                        }
-                    ]
-                });
+                        var data = JsonSerializer.Deserialize<JsonElement>(jsonContent, jsonOptions);
 
-                return fileResult.Count > 0 ? fileResult[0].Path.LocalPath : null;
+                        if (data.TryGetProperty("TotalUniquePlayers", out JsonElement totalUniquePlayers))
+                        {
+                            this.totalUniquePlayers = new HashSet<string>(totalUniquePlayers.EnumerateArray()
+                                .Select(x => x.GetString() ?? string.Empty));
+                        }
+                        else
+                        {
+                            this.totalUniquePlayers = [];
+                        }
+
+                        if (data.TryGetProperty("LastWeekReset", out JsonElement lastWeekReset))
+                        {
+                            this.lastWeekReset = lastWeekReset.GetDateTime();
+                        }
+                        else
+                        {
+                            this.lastWeekReset = DateTime.MinValue;
+                        }
+                    }
+                    catch (JsonException ex)
+                    {
+                        Console.WriteLine($"Error deserializing JSON: {ex.Message}");
+                        this.totalUniquePlayers = [];
+                        this.lastWeekReset = DateTime.MinValue;
+                    }
+                }
+                else
+                {
+                    this.totalUniquePlayers = [];
+                    this.lastWeekReset = DateTime.MinValue;
+                }
+            }
+            else
+            {
+                this.totalUniquePlayers = [];
+                this.lastWeekReset = DateTime.MinValue;
+            }
+        }
+
+
+        private void LdAnn2()
+        {
+            if (File.Exists(ConfigPath))
+            {
+                try
+                {
+                    string json = File.ReadAllText(ConfigPath);
+                    var loadedAnnouncements = JsonSerializer.Deserialize<List<Announcement>>(json);
+                    announcements.Clear();
+                    if (loadedAnnouncements != null)
+                    {
+                        announcements.AddRange(loadedAnnouncements);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"Error loading announcements: {ex.Message}");
+                }
+            }
+            else
+            {
+                announcements.Clear();
             }
         }
 
@@ -322,24 +286,6 @@ namespace VsServerConsoleThingy
                 vsPaths = null;
             }
         }
-
-        //        private async Task<string?> AskDir(string title)
-        //        {
-        //            var topLevel = TopLevel.GetTopLevel(this);
-        //            if (topLevel != null)
-        //            {
-        //               var folders = await topLevel.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
-        //                {
-        //                    Title = title,
-        //                    AllowMultiple = false
-        //                });
-        //                if (folders.Count > 0)
-        //                {
-        //                    return folders[0].Path.LocalPath;
-        //                }
-        //            }
-        //            return null;
-        //        }
 
         public enum PthSelTyp
         {
@@ -496,18 +442,6 @@ namespace VsServerConsoleThingy
             }
         }
 
-        //private void AppendPrompt()
-        //{
-        //    TxtXChng(PROMPT, Colors.White);
-        //     lastInputPosition = txtConsole.FlowDoc.Text.Length;
-        //}
-
-        // private string GetUserInput()
-        //  {
-        //      return txtConsole?.FlowDoc?.Text[lastInputPosition..].Trim() ?? string.Empty;
-        //   }
-
-
         private async Task StpSrvAsync()
         {
             if (serverProcess != null && !serverProcess.HasExited)
@@ -549,14 +483,14 @@ namespace VsServerConsoleThingy
             }
         }
 
-        private static void ChckExst(string path)
-        {
-            string? directory = Path.GetDirectoryName(path);
-            if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
-            {
-                Directory.CreateDirectory(directory);
-            }
-        }
+        //private static void ChckExst(string path)
+        //{
+        //   string? directory = Path.GetDirectoryName(path);
+        //    if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+        //    {
+        //        Directory.CreateDirectory(directory);
+        //    }
+        //}
 
 
         private async void MainCls(object? sender, System.ComponentModel.CancelEventArgs e)
@@ -565,7 +499,12 @@ namespace VsServerConsoleThingy
             {
                 e.Cancel = true;
                 await StpSrvAsync();
+                SavePlayerCounts();
                 Close();
+            }
+            else
+            {
+                SavePlayerCounts();
             }
         }
 
@@ -599,11 +538,6 @@ namespace VsServerConsoleThingy
             return null;
         }
 
-        //private void UpConfPth(string newPath)
-        //{
-        //    configPath = newPath;
-        //}
-
         private async Task LdAnn()
         {
             try
@@ -623,27 +557,12 @@ namespace VsServerConsoleThingy
                     }
                 }
 
-                string? configDir = Path.GetDirectoryName(configPath);
-                if (configDir == null)
+                string json = await File.ReadAllTextAsync(ConfigPath);
+                var loadedAnnouncements = JsonSerializer.Deserialize<List<Announcement>>(json, jsonOptions);
+                if (loadedAnnouncements != null)
                 {
-                    TxtXChng("Invalid configuration path for announcer.json." + Environment.NewLine, Colors.Red);
-                    return;
-                }
-
-                if (!Directory.Exists(configDir))
-                {
-                    Directory.CreateDirectory(configDir);
-                }
-
-                if (File.Exists(configPath))
-                {
-                    string json = await File.ReadAllTextAsync(configPath);
-                    var loadedAnnouncements = JsonSerializer.Deserialize<List<Announcement>>(json, jsonOptions);
-                    if (loadedAnnouncements != null)
-                    {
-                        announcements.Clear();
-                        announcements.AddRange(loadedAnnouncements);
-                    }
+                    announcements.Clear();
+                    announcements.AddRange(loadedAnnouncements);
                 }
                 else
                 {
@@ -663,9 +582,14 @@ namespace VsServerConsoleThingy
         {
             try
             {
-                ChckExst(configPath);
+                string? configDir = Path.GetDirectoryName(ConfigPath);
+                if (configDir != null)
+                {
+                    Directory.CreateDirectory(configDir);
+                }
+
                 string json = JsonSerializer.Serialize(announcements, jsonOptions);
-                await File.WriteAllTextAsync(configPath, json);
+                await File.WriteAllTextAsync(ConfigPath, json);
             }
             catch (Exception ex)
             {
@@ -673,6 +597,14 @@ namespace VsServerConsoleThingy
             }
         }
 
+        private void ResetWeeklyCounts()
+        {
+            if ((DateTime.Now - lastWeekReset).TotalDays >= 7)
+            {
+                weeklyUniquePlayers.Clear();
+                lastWeekReset = DateTime.Now;
+            }
+        }
 
         private void UpPlayLst(string playerName, bool isJoining)
         {
@@ -684,6 +616,8 @@ namespace VsServerConsoleThingy
                     {
                         currentPlayers.Add(playerName);
                         playerCount++;
+                        totalUniquePlayers.Add(playerName);
+                        weeklyUniquePlayers.Add(playerName);
                         Debug.WriteLine($"Player added: {playerName}");
                     }
                 }
@@ -701,6 +635,7 @@ namespace VsServerConsoleThingy
                 }
 
                 PlayerUpdate();
+                UpdatePlayerCounts(totalUniquePlayers.Count, weeklyUniquePlayers.Count);
             });
         }
 
@@ -708,6 +643,8 @@ namespace VsServerConsoleThingy
         {
             Dispatcher.UIThread.InvokeAsync(() =>
             {
+                ResetWeeklyCounts();
+
                 var oldCountItem = currentPlayers.FirstOrDefault(item => item.StartsWith("Players Online:"));
                 if (oldCountItem != null)
                 {
@@ -715,9 +652,9 @@ namespace VsServerConsoleThingy
                 }
 
                 currentPlayers.Insert(0, $"Players Online: {playerCount}");
+                UpdatePlayerCounts(totalUniquePlayers.Count, weeklyUniquePlayers.Count);
             });
         }
-
 
 
         private void PnBtnClk(object sender, RoutedEventArgs e)
@@ -778,7 +715,6 @@ namespace VsServerConsoleThingy
                 serverProcess.BeginOutputReadLine();
                 serverProcess.BeginErrorReadLine();
                 TxtXChng("Server started." + Environment.NewLine, Colors.White);
-                //AppendPrompt();
             }
         }
 
@@ -823,7 +759,6 @@ namespace VsServerConsoleThingy
                 Dispatcher.UIThread.InvokeAsync(() =>
                 {
                     TxtXChng(e.Data + Environment.NewLine, Colors.Red);
-                    //AppendPrompt();
                 });
             }
         }
@@ -984,10 +919,12 @@ namespace VsServerConsoleThingy
 
         private void UpAnnLst()
         {
-            lstAnnouncements.ItemsSource = new ObservableCollection<string>(
-                 announcements.Select(a => $"{a.Hour:D2}:{a.Minute:D2} - {a.Message}")
-            );
-
+            if (lstAnnouncements != null)
+            {
+                lstAnnouncements.ItemsSource = new ObservableCollection<string>(
+                    announcements.Select(a => $"{a.Hour:D2}:{a.Minute:D2} - {a.Message}")
+                );
+            }
         }
 
         private async void BtnAnnClick(object? sender, RoutedEventArgs e)
@@ -1030,5 +967,182 @@ namespace VsServerConsoleThingy
         public int Hour { get; set; }
         public int Minute { get; set; }
         public string Message { get; set; } = string.Empty;
+    }
+    public class PathSettingsWindow : Window
+    {
+        private readonly TextBox InstPath;
+        private readonly TextBox ExecPath;
+        private readonly TextBox AnnConfPath;
+        private readonly Button BtnInst;
+        private readonly Button BtnExec;
+        private readonly Button BtnAnnConfig;
+        private readonly Button btnSave;
+        private readonly VSPths vsPaths;
+        private static readonly string[] ExecutableFileTypes = ["exe"];
+        private static readonly string[] JsonFileTypes = ["json"];
+        private readonly MainWindow mainWindow;
+
+        public PathSettingsWindow(MainWindow mainWindow)
+        {
+            this.mainWindow = mainWindow;
+            Title = "Path Settings";
+            Width = 800;
+            Height = 250;
+            vsPaths = new VSPths();
+
+            InstPath = new TextBox { Margin = new Thickness(5), Text = vsPaths.InstPth ?? "" };
+            ExecPath = new TextBox { Margin = new Thickness(5), Text = vsPaths.ExecPth ?? "" };
+            AnnConfPath = new TextBox { Margin = new Thickness(5), Text = vsPaths.AnnConfPth ?? MainWindow.ConfigPath ?? "" };
+
+            var grid = new Grid
+            {
+                RowDefinitions =
+            {
+                new RowDefinition { Height = GridLength.Auto },
+                new RowDefinition { Height = GridLength.Auto },
+                new RowDefinition { Height = GridLength.Auto },
+                new RowDefinition { Height = GridLength.Auto }
+            },
+                ColumnDefinitions =
+            {
+                new ColumnDefinition { Width = GridLength.Auto },
+                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                new ColumnDefinition { Width = GridLength.Auto }
+            }
+            };
+
+            grid.Children.Add(new TextBlock { Text = "Installation Path:", Margin = new Thickness(5) });
+            Grid.SetRow(grid.Children[^1], 0);
+            Grid.SetColumn(grid.Children[^1], 0);
+
+            InstPath = new TextBox { Margin = new Thickness(5), Text = vsPaths.InstPth ?? "" };
+            grid.Children.Add(InstPath);
+            Grid.SetRow(grid.Children[^1], 0);
+            Grid.SetColumn(grid.Children[^1], 1);
+
+            BtnInst = new Button { Content = "Browse", Margin = new Thickness(5) };
+            BtnInst.Click += BrwsInst;
+            grid.Children.Add(BtnInst);
+            Grid.SetRow(grid.Children[^1], 0);
+            Grid.SetColumn(grid.Children[^1], 2);
+
+            grid.Children.Add(new TextBlock { Text = "Executable Path:", Margin = new Thickness(5) });
+            Grid.SetRow(grid.Children[^1], 1);
+            Grid.SetColumn(grid.Children[^1], 0);
+
+            ExecPath = new TextBox { Margin = new Thickness(5), Text = vsPaths.ExecPth ?? "" };
+            grid.Children.Add(ExecPath);
+            Grid.SetRow(grid.Children[^1], 1);
+            Grid.SetColumn(grid.Children[^1], 1);
+
+            BtnExec = new Button { Content = "Browse", Margin = new Thickness(5) };
+            BtnExec.Click += BrwsExec;
+            grid.Children.Add(BtnExec);
+            Grid.SetRow(grid.Children[^1], 1);
+            Grid.SetColumn(grid.Children[^1], 2);
+
+            grid.Children.Add(new TextBlock { Text = "Announcer Config Path:", Margin = new Thickness(5) });
+            Grid.SetRow(grid.Children[^1], 2);
+            Grid.SetColumn(grid.Children[^1], 0);
+
+            AnnConfPath = new TextBox { Margin = new Thickness(5), Text = MainWindow.ConfigPath ?? "" };
+            grid.Children.Add(AnnConfPath);
+            Grid.SetRow(grid.Children[^1], 2);
+            Grid.SetColumn(grid.Children[^1], 1);
+
+            BtnAnnConfig = new Button { Content = "Browse", Margin = new Thickness(5) };
+            BtnAnnConfig.Click += BrwsAnnConf;
+            grid.Children.Add(BtnAnnConfig);
+            Grid.SetRow(grid.Children[^1], 2);
+            Grid.SetColumn(grid.Children[^1], 2);
+
+            btnSave = new Button { Content = "Save", Margin = new Thickness(5), HorizontalAlignment = HorizontalAlignment.Right };
+            btnSave.Click += BtnSv;
+            grid.Children.Add(btnSave);
+            Grid.SetRow(grid.Children[^1], 3);
+            Grid.SetColumn(grid.Children[^1], 1);
+            Grid.SetColumnSpan(grid.Children[^1], 2);
+
+            Content = grid;
+        }
+
+        public void UpdateConfigPath(string newPath)
+        {
+            mainWindow.ConfPathabcdefg(newPath);
+        }
+        private async void BrwsInst(object? _sender, RoutedEventArgs _e)
+        {
+            var path = await SelFol("Select Vintage Story/Server Installation Folder");
+            if (path != null)
+            {
+                InstPath.Text = path;
+            }
+        }
+
+        private async void BrwsExec(object? _sender, RoutedEventArgs _e)
+        {
+            var path = await SelFil("Select Vintage Story Server Executable", ExecutableFileTypes);
+            if (path != null)
+            {
+                ExecPath.Text = path;
+            }
+        }
+
+        private async void BrwsAnnConf(object? _sender, RoutedEventArgs _e)
+        {
+            var path = await SelFil("Select Announcer Config File", JsonFileTypes);
+            if (path != null)
+            {
+                AnnConfPath.Text = path;
+            }
+        }
+
+        private async void BtnSv(object? _sender, RoutedEventArgs _e)
+        {
+            if (string.IsNullOrEmpty(InstPath.Text) || string.IsNullOrEmpty(ExecPath.Text) || string.IsNullOrEmpty(AnnConfPath.Text))
+            {
+                await MessageBoxManager.GetMessageBoxStandard(
+                    new MessageBoxStandardParams
+                    {
+                        ContentTitle = "Error",
+                        ContentMessage = "All paths must be filled.",
+                        ButtonDefinitions = ButtonEnum.Ok
+                    }).ShowAsync();
+                return;
+            }
+
+            vsPaths.StPth(InstPath.Text, ExecPath.Text, AnnConfPath.Text);
+            UpdateConfigPath(AnnConfPath.Text);
+            Close();
+        }
+
+        private async Task<string?> SelFol(string title)
+        {
+            var FolRes = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+            {
+                Title = title,
+                AllowMultiple = false
+            });
+
+            return FolRes.Count > 0 ? FolRes[0].Path.LocalPath : null;
+        }
+
+        private async Task<string?> SelFil(string title, string[] fileTypes)
+        {
+            var FilRes = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                Title = title,
+                AllowMultiple = false,
+                FileTypeFilter =
+                [
+                    new FilePickerFileType("Supported Files")
+                    {
+                         Patterns = fileTypes.Select(ft => $"*.{ft}").ToArray()
+                        }
+                ]
+            });
+
+            return FilRes.Count > 0 ? FilRes[0].Path.LocalPath : null;
+        }
     }
 }
