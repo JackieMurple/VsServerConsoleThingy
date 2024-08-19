@@ -13,11 +13,12 @@ namespace VsServerConsoleThingy
         public string? InstPth { get; private set; }
         public string? ExecPth { get; private set; }
         public string? AnnConfPth { get; private set; }
+        private readonly ServerManagerConfig config;
+        public const string ConfigFileName = "VSPths.json";
 
-        private const string ConfigFileName = "vspaths.json";
-
-        public VSPths()
+        public VSPths(ServerManagerConfig config)
         {
+            this.config = config;
             LdPth();
             if (string.IsNullOrEmpty(InstPth) || string.IsNullOrEmpty(ExecPth))
             {

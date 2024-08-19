@@ -151,7 +151,7 @@
 				</Grid.ColumnDefinitions>
 				<Border Grid.Column="0" Background="#7A9CC6" CornerRadius="20" Margin="15,0,15,15">
 					<StackPanel Margin="15">
-						<TextBox x:Name="txtServerInput" Classes="Other" Watermark="Server Input" Margin="0,0,0,15" Background="#DED6CE"/>
+						<TextBox x:Name="txtServerInput" Classes="Other" Foreground="Black" Watermark="Server Input" Margin="0,0,0,15" Background="#DED6CE"/>
 						
 						<StackPanel Orientation="Horizontal">
 							<Button x:Name="btnStartServer"
@@ -198,7 +198,7 @@
 								Margin = "15,10,0,0"
 								Width="70" Height="10"
 								Background = "#DED6CE"
-								Foreground="#F7D9C4"
+								Foreground="Black"
 								Watermark="Keep #"
 								>
 							</TextBox>
@@ -321,7 +321,7 @@
 					
 				</StackPanel>
 
-				<TextBox x:Name="txtMessage" Classes="Other" Background="#E1D3F8" Watermark="Enter message" Margin="0,0,0,10" />
+				<TextBox x:Name="txtMessage" Classes="Other" Background="#E1D3F8" Foreground="Black" Watermark="Enter message" Margin="0,0,0,10" />
 
 				<ListBox x:Name="lstAnnouncements" Height="140" Margin="0,0,0,10" />
 
@@ -351,10 +351,10 @@
 				</Border>
 
 				<Border Background="#98FB98" CornerRadius="15" Margin="0,0,0,10">
-					<TextBox x:Name="whitelist" Classes="Other" Watermark="Whitelist" Background="Transparent" BorderThickness="0" />
+					<TextBox x:Name="whitelist" Classes="Other" Watermark="Whitelist" Foreground="Black" Background="Transparent" BorderThickness="0" />
 				</Border>
 				<Border Background="#FFA07A" CornerRadius="15">
-					<TextBox x:Name="blacklist" Classes="Other" Watermark="Blacklist" Background="Transparent" BorderThickness="0" />
+					<TextBox x:Name="blacklist" Classes="Other" Watermark="Blacklist" Foreground="Black" Background="Transparent" BorderThickness="0" />
 				</Border>
 			</StackPanel>
 		</Border>

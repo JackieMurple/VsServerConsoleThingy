@@ -5,7 +5,6 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
-using Avalonia.VisualTree;
 using AvRichTextBox;
 using MsBox.Avalonia;
 using MsBox.Avalonia.Dto;
@@ -23,9 +22,27 @@ using System.Threading.Tasks;
 namespace VsServerConsoleThingy
 {
 
+    public class ServerManagerConfig
+    {
+        public string ConfigPath { get; set; } = string.Empty;
+        public ResSet RestartSettings { get; set; } = new();
+        public List<Announcement> Announcements { get; set; } = [];
+        public HashSet<string> TotalUniquePlayers { get; set; } = [];
+        public HashSet<string> WeeklyUniquePlayers { get; set; } = [];
+        public DateTime LastWeekReset { get; set; } = DateTime.MinValue;
+        public bool UseRichTextBox { get; set; } = false;
+
+
+    }
+
     public partial class MainWindow : Window
     {
         private VSPths? vsPaths;
+        private ServerManagerConfig config = new();
+        private static readonly string ServerManagerConfigPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "VsServerConsoleThingy",
+            "ServerManagerConfig.json");
         private readonly List<Announcement> announcements = [];
         public static string ConfigPath
         {
@@ -36,51 +53,36 @@ namespace VsServerConsoleThingy
                 SaveConfigPath();
             }
         }
-        private static string _configPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "vintagestorydata", "ModConfig", "AnnouncerConfig.json");
-        //private readonly string configPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "vintagestorydata", "ModConfig", "AnnouncerConfig.json");
+        private static string _configPath = Path.Combine(
+                                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                                "vintagestorydata",
+                                "ModConfig",
+                                "AnnouncerConfig.json");
         private readonly ResSet restartSettings = new();
-        private readonly string restartSettingsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "vintagestorydata", "ModConfig", "ResSet.json");
-        private readonly DispatcherTimer restartTimer = new();
+        private readonly string restartSettingsPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "vintagestorydata",
+            "ModConfig",
+            "ResSet.json");
         private readonly ObservableCollection<string> currentPlayers = [];
         private static readonly JsonSerializerOptions jsonOptions = new() { WriteIndented = true };
+        private static readonly FilePickerFileType JsonFileType = new("JSON Files") { Patterns = ["*.json"] };
+        private int playerCount;
+        private readonly DispatcherTimer restartTimer = new();
         private Control? txtConsole;
         private Process? serverProcess;
-        private static readonly FilePickerFileType JsonFileType = new("JSON Files") { Patterns = ["*.json"] };
-        private int playerCount = 0;
-        private static void SaveConfigPath()
-        {
-            string configFile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "VsServerConsoleThingy", "config.json");
-            string? directory = Path.GetDirectoryName(configFile);
-            if (!string.IsNullOrEmpty(directory))
-            {
-                Directory.CreateDirectory(directory);
-            }
-            File.WriteAllText(configFile, JsonSerializer.Serialize(new { ConfigPath = _configPath }));
-        }
 
-        private static void LoadConfigPath()
-        {
-            string configFile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "VsServerConsoleThingy", "config.json");
-            if (File.Exists(configFile))
-            {
-                string jsonContent = File.ReadAllText(configFile);
-                using JsonDocument doc = JsonDocument.Parse(jsonContent);
-                JsonElement root = doc.RootElement;
 
-                if (root.TryGetProperty(nameof(ConfigPath), out JsonElement configPathElement))
-                {
-                    _configPath = configPathElement.GetString() ?? _configPath;
-                }
-            }
-        }
         private HashSet<string> totalUniquePlayers = [];
-        private HashSet<string> weeklyUniquePlayers = [];
+        private readonly HashSet<string> weeklyUniquePlayers = [];
         private DateTime lastWeekReset = DateTime.MinValue;
+        private DateTime lastAnnouncementTime = DateTime.MinValue;
 
         private bool AutoSaveEnabled => AutoSave?.IsChecked == true;
 
         public MainWindow()
         {
+            LoadConfig();
             LoadConfigPath();
             InitializeComponent();
             DataContext = this;
@@ -123,10 +125,52 @@ namespace VsServerConsoleThingy
             lstPlayers.ItemsSource = currentPlayers;
             PlayerUpdate();
             AdminCheck.Click += TxtBx;
-            Consoleswap(restartSettings.UseRichTextBox);
+            Consoleswap(restartSettings.RchTxt);
             ConfigPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "vintagestorydata", "ModConfig", "AnnouncerConfig.json");
             LdAnn2();
             LoadPlayerCounts();
+            LoadConfig();
+        }
+
+        public async void ConfPathabcdefg(string newPath)
+        {
+            ConfigPath = newPath;
+            await SaveConfig();
+            await LdAnn();
+        }
+
+        private void LoadConfig()
+        {
+            if (File.Exists(ServerManagerConfigPath))
+            {
+                try
+                {
+                    string json = File.ReadAllText(ServerManagerConfigPath);
+                    Debug.WriteLine($"Config file contents: {json}");
+                    config = JsonSerializer.Deserialize<ServerManagerConfig>(json, jsonOptions) ?? new ServerManagerConfig();
+                }
+                catch (JsonException)
+                {
+                    var fileContent = File.ReadAllText(ServerManagerConfigPath);
+                    string fileStart = fileContent[..Math.Min(100, fileContent.Length)];
+                    config = new ServerManagerConfig();
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"Unexpected error loading config: {ex.Message}");
+                    config = new ServerManagerConfig();
+                }
+            }
+            else
+            {
+                config = new ServerManagerConfig();
+            }
+        }
+
+        private async Task SaveConfig()
+        {
+            string json = JsonSerializer.Serialize(config, jsonOptions);
+            await File.WriteAllTextAsync(ServerManagerConfigPath, json).ConfigureAwait(false);
         }
 
         private async void PthSetClk(object _sender, RoutedEventArgs _e)
@@ -137,8 +181,14 @@ namespace VsServerConsoleThingy
 
         public void ResAnnClk(object sender, RoutedEventArgs e)
         {
-            var ResAnnWin = new ResAnnWin();
-            ResAnnWin.Show();
+            var resAnnWin = new ResAnnWin(restartSettings);
+            resAnnWin.SetOwner(this);
+            resAnnWin.Closed += (s, args) =>
+            {
+                resAnnWin.SaveSettings();
+                SaveRestartSettings();
+            };
+            resAnnWin.Show();
         }
 
         public void UpdatePlayerCounts(int totalPlayers, int weeklyPlayers)
@@ -149,10 +199,17 @@ namespace VsServerConsoleThingy
                 TotPlayWk.Text = weeklyPlayers.ToString();
             });
         }
-        public void ConfPathabcdefg(string newPath)
+        private static void SaveConfigPath()
         {
-            ConfigPath = newPath;
-            LdAnn2();
+            File.WriteAllText(ServerManagerConfigPath, ConfigPath);
+        }
+
+        private static void LoadConfigPath()
+        {
+            if (File.Exists(ServerManagerConfigPath))
+            {
+                ConfigPath = File.ReadAllText(ServerManagerConfigPath);
+            }
         }
 
         private void SavePlayerCounts()
@@ -222,41 +279,14 @@ namespace VsServerConsoleThingy
 
         private void LdAnn2()
         {
-            if (File.Exists(ConfigPath))
-            {
-                try
-                {
-                    string json = File.ReadAllText(ConfigPath);
-                    var loadedAnnouncements = JsonSerializer.Deserialize<List<Announcement>>(json);
-                    announcements.Clear();
-                    if (loadedAnnouncements != null)
-                    {
-                        announcements.AddRange(loadedAnnouncements);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine($"Error loading announcements: {ex.Message}");
-                }
-            }
-            else
-            {
-                announcements.Clear();
-            }
+            announcements.Clear();
+            announcements.AddRange(config.Announcements);
         }
 
-        public class ResAnnWin : Window
-        {
-            public ResAnnWin()
-            {
-                Title = "Restart Announcements";
-                Width = 400;
-                Height = 300;
-                // add stuff later
-            }
-        }
         private async Task InitAsyc()
         {
+            LoadConfig();
+            vsPaths = new VSPths(config);
             await InitVSPath();
             await LdAnn();
             StartServer();
@@ -265,7 +295,7 @@ namespace VsServerConsoleThingy
         {
             bool useRichTextBox = AdminCheck.IsChecked.GetValueOrDefault();
             Consoleswap(useRichTextBox);
-            restartSettings.UseRichTextBox = useRichTextBox;
+            restartSettings.RchTxt = useRichTextBox;
             SvResSet();
         }
 
@@ -274,7 +304,7 @@ namespace VsServerConsoleThingy
         {
             try
             {
-                vsPaths = new VSPths();
+                vsPaths = new VSPths(config);
                 if (string.IsNullOrEmpty(vsPaths.InstPth) || string.IsNullOrEmpty(vsPaths.ExecPth))
                 {
                     await SelDialog();
@@ -306,7 +336,7 @@ namespace VsServerConsoleThingy
             {
                 try
                 {
-                    vsPaths ??= new VSPths();
+                    vsPaths = new VSPths(config);
 
                     await vsPaths.ManPth();
                     if (string.IsNullOrEmpty(vsPaths.InstPth) || string.IsNullOrEmpty(vsPaths.ExecPth))
@@ -332,9 +362,9 @@ namespace VsServerConsoleThingy
             }
         }
 
-        private void TxtXChng(string text, Color color)
+        private async void TxtXChng(string text, Color color)
         {
-            Dispatcher.UIThread.InvokeAsync(() =>
+            await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 if (txtConsole == null)
                 {
@@ -350,21 +380,14 @@ namespace VsServerConsoleThingy
                         return;
                     }
 
-                    var Par = new Paragraph
+                    var paragraph = new Paragraph
                     {
                         Margin = new Thickness(0),
-                        LineHeight = 0
+                        LineHeight = 0,
+                        Inlines = { new EditableRun(text) { Foreground = new SolidColorBrush(color) } }
                     };
-                    var run = new EditableRun(text)
-                    {
-                        Foreground = new SolidColorBrush(color)
-                    };
-                    Par.Inlines.Add(run);
 
-                    var Scrl = richTextBox.FindDescendantOfType<ScrollViewer>();
-
-                    richTextBox.FlowDoc.Blocks.Add(Par);
-
+                    richTextBox.FlowDoc.Blocks.Add(paragraph);
                 }
                 else if (txtConsole is TextBox textBox)
                 {
@@ -483,16 +506,6 @@ namespace VsServerConsoleThingy
             }
         }
 
-        //private static void ChckExst(string path)
-        //{
-        //   string? directory = Path.GetDirectoryName(path);
-        //    if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
-        //    {
-        //        Directory.CreateDirectory(directory);
-        //    }
-        //}
-
-
         private async void MainCls(object? sender, System.ComponentModel.CancelEventArgs e)
         {
             if (serverProcess != null && !serverProcess.HasExited)
@@ -510,7 +523,7 @@ namespace VsServerConsoleThingy
 
         private void StartServer()
         {
-            if (restartSettings.StartAutomatically && (serverProcess == null || serverProcess.HasExited) && vsPaths != null && !string.IsNullOrEmpty(vsPaths.ExecPth))
+            if (restartSettings.Auto && (serverProcess == null || serverProcess.HasExited) && vsPaths != null && !string.IsNullOrEmpty(vsPaths.ExecPth))
             {
                 playerCount = 0;
                 PlayerUpdate();
@@ -551,6 +564,7 @@ namespace VsServerConsoleThingy
                     }
                     else
                     {
+                        announcements.Clear();
                         announcements.Add(new Announcement { Hour = 6, Minute = 0, Message = "placeholder announcement" });
                         await SvAnn();
                         return;
@@ -559,9 +573,9 @@ namespace VsServerConsoleThingy
 
                 string json = await File.ReadAllTextAsync(ConfigPath);
                 var loadedAnnouncements = JsonSerializer.Deserialize<List<Announcement>>(json, jsonOptions);
+                announcements.Clear();
                 if (loadedAnnouncements != null)
                 {
-                    announcements.Clear();
                     announcements.AddRange(loadedAnnouncements);
                 }
                 else
@@ -580,35 +594,23 @@ namespace VsServerConsoleThingy
 
         private async Task SvAnn()
         {
-            try
-            {
-                string? configDir = Path.GetDirectoryName(ConfigPath);
-                if (configDir != null)
-                {
-                    Directory.CreateDirectory(configDir);
-                }
+            string json = JsonSerializer.Serialize(announcements, jsonOptions);
+            await File.WriteAllTextAsync(ConfigPath, json).ConfigureAwait(false);
+        }
 
-                string json = JsonSerializer.Serialize(announcements, jsonOptions);
-                await File.WriteAllTextAsync(ConfigPath, json);
-            }
-            catch (Exception ex)
+        private async void ResetWeeklyCounts()
+        {
+            if ((DateTime.Now - config.LastWeekReset).TotalDays >= 7)
             {
-                TxtXChng($"Error saving announcements: {ex.Message}" + Environment.NewLine, Colors.Red);
+                config.WeeklyUniquePlayers.Clear();
+                config.LastWeekReset = DateTime.Now;
+                await SaveConfig();
             }
         }
 
-        private void ResetWeeklyCounts()
+        private async Task UpPlayLst(string playerName, bool isJoining)
         {
-            if ((DateTime.Now - lastWeekReset).TotalDays >= 7)
-            {
-                weeklyUniquePlayers.Clear();
-                lastWeekReset = DateTime.Now;
-            }
-        }
-
-        private void UpPlayLst(string playerName, bool isJoining)
-        {
-            Dispatcher.UIThread.InvokeAsync(() =>
+            await Dispatcher.UIThread.InvokeAsync(async () =>
             {
                 if (isJoining)
                 {
@@ -616,8 +618,8 @@ namespace VsServerConsoleThingy
                     {
                         currentPlayers.Add(playerName);
                         playerCount++;
-                        totalUniquePlayers.Add(playerName);
-                        weeklyUniquePlayers.Add(playerName);
+                        config.TotalUniquePlayers.Add(playerName);
+                        config.WeeklyUniquePlayers.Add(playerName);
                         Debug.WriteLine($"Player added: {playerName}");
                     }
                 }
@@ -633,9 +635,9 @@ namespace VsServerConsoleThingy
                         Debug.WriteLine($"Failed to remove player: {playerName}");
                     }
                 }
-
                 PlayerUpdate();
-                UpdatePlayerCounts(totalUniquePlayers.Count, weeklyUniquePlayers.Count);
+                UpdatePlayerCounts(config.TotalUniquePlayers.Count, config.WeeklyUniquePlayers.Count);
+                await SaveConfig();
             });
         }
 
@@ -644,15 +646,13 @@ namespace VsServerConsoleThingy
             Dispatcher.UIThread.InvokeAsync(() =>
             {
                 ResetWeeklyCounts();
-
                 var oldCountItem = currentPlayers.FirstOrDefault(item => item.StartsWith("Players Online:"));
                 if (oldCountItem != null)
                 {
                     currentPlayers.Remove(oldCountItem);
                 }
-
                 currentPlayers.Insert(0, $"Players Online: {playerCount}");
-                UpdatePlayerCounts(totalUniquePlayers.Count, weeklyUniquePlayers.Count);
+                UpdatePlayerCounts(config.TotalUniquePlayers.Count, config.WeeklyUniquePlayers.Count);
             });
         }
 
@@ -722,30 +722,33 @@ namespace VsServerConsoleThingy
         {
             if (!string.IsNullOrEmpty(e.Data))
             {
-                Dispatcher.UIThread.InvokeAsync(() =>
+                Task.Run(async () =>
                 {
-                    Color textColor = Colors.White;
-                    if (e.Data.Contains("Server Error", StringComparison.OrdinalIgnoreCase))
+                    await Dispatcher.UIThread.InvokeAsync(async () =>
                     {
-                        textColor = Colors.Red;
-                    }
-                    else if (e.Data.Contains("Server Warning", StringComparison.OrdinalIgnoreCase))
-                    {
-                        textColor = Colors.Orange;
-                    }
+                        Color textColor = Colors.White;
+                        if (e.Data.Contains("Server Error", StringComparison.OrdinalIgnoreCase))
+                        {
+                            textColor = Colors.Red;
+                        }
+                        else if (e.Data.Contains("Server Warning", StringComparison.OrdinalIgnoreCase))
+                        {
+                            textColor = Colors.Orange;
+                        }
 
-                    if (e.Data.Contains("joins.", StringComparison.OrdinalIgnoreCase))
-                    {
-                        string playerName = PlayerName(e.Data);
-                        UpPlayLst(playerName, true);
-                    }
-                    else if (e.Data.Contains("[Server Event] Player", StringComparison.OrdinalIgnoreCase) && e.Data.Contains("left.", StringComparison.OrdinalIgnoreCase))
-                    {
-                        string playerName = PlayerName(e.Data);
-                        UpPlayLst(playerName, false);
-                    }
+                        if (e.Data.Contains("joins.", StringComparison.OrdinalIgnoreCase))
+                        {
+                            string playerName = PlayerName(e.Data);
+                            await UpPlayLst(playerName, true);
+                        }
+                        else if (e.Data.Contains("[Server Event] Player", StringComparison.OrdinalIgnoreCase) && e.Data.Contains("left.", StringComparison.OrdinalIgnoreCase))
+                        {
+                            string playerName = PlayerName(e.Data);
+                            await UpPlayLst(playerName, false);
+                        }
 
-                    TxtXChng(e.Data + Environment.NewLine, textColor);
+                        TxtXChng(e.Data + Environment.NewLine, textColor);
+                    });
                 });
             }
         }
@@ -781,7 +784,10 @@ namespace VsServerConsoleThingy
                 }
             }
         }
-
+        public void SaveRestartSettings()
+        {
+            SvResSet();
+        }
         private void Blacklister(object? sender, Avalonia.Input.KeyEventArgs e)
         {
             if (e.Key == Avalonia.Input.Key.Enter && blacklist != null && serverProcess != null && !serverProcess.HasExited)
@@ -798,9 +804,12 @@ namespace VsServerConsoleThingy
 
         private void SvResSet()
         {
-            restartSettings.UseRichTextBox = AdminCheck.IsChecked ?? false;
+            restartSettings.RchTxt = AdminCheck.IsChecked ?? false;
             string json = JsonSerializer.Serialize(restartSettings, jsonOptions);
             File.WriteAllText(restartSettingsPath, json);
+            restartSettings.EnableAnn = restartSettings.EnableAnn;
+            restartSettings.AnnSrtMin = restartSettings.AnnSrtMin;
+            restartSettings.AnnInt = restartSettings.AnnInt;
         }
 
         private void LdResSet()
@@ -816,9 +825,9 @@ namespace VsServerConsoleThingy
                     restartSettings.Hour = Math.Min(Math.Max(loadedSettings.Hour, 0), 23);
                     restartSettings.Minute = loadedSettings.Minute;
                     restartSettings.WeekDay = loadedSettings.WeekDay;
-                    restartSettings.StartAutomatically = loadedSettings.StartAutomatically;
-                    restartSettings.LastRestartDate = loadedSettings.LastRestartDate;
-                    restartSettings.UseRichTextBox = loadedSettings.UseRichTextBox;
+                    restartSettings.Auto = loadedSettings.Auto;
+                    restartSettings.LastResDt = loadedSettings.LastResDt;
+                    restartSettings.RchTxt = loadedSettings.RchTxt;
                 }
             }
             else
@@ -826,8 +835,8 @@ namespace VsServerConsoleThingy
                 restartSettings.WeekDay = DayOfWeek.Sunday;
                 restartSettings.Hour = 6;
                 restartSettings.Minute = 0;
-                restartSettings.LastRestartDate = DateTime.MinValue;
-                restartSettings.UseRichTextBox = false;
+                restartSettings.LastResDt = DateTime.MinValue;
+                restartSettings.RchTxt = false;
             }
             ResCtrlChng();
         }
@@ -837,7 +846,7 @@ namespace VsServerConsoleThingy
             EnableRestart.IsChecked = restartSettings.Enabled;
             DailyRestart.IsChecked = restartSettings.IsDaily;
             WeeklyRestart.IsChecked = !restartSettings.IsDaily;
-            AdminCheck.IsChecked = restartSettings.UseRichTextBox;
+            AdminCheck.IsChecked = restartSettings.RchTxt;
 
             int validHour = Math.Min(Math.Max(restartSettings.Hour, 0), 23);
             TimeHour.Value = validHour;
@@ -896,16 +905,60 @@ namespace VsServerConsoleThingy
             if (restartSettings.Enabled && serverProcess != null && !serverProcess.HasExited)
             {
                 DateTime now = DateTime.Now;
+                DateTime nextRestartTime = Nxres(now);
+                TimeSpan timeUntilRestart = nextRestartTime - now;
+
+                await ChkAnn(timeUntilRestart);
+
                 bool shouldRestart = restartSettings.IsDaily
                     ? now.Hour == restartSettings.Hour && now.Minute == restartSettings.Minute
                     : now.DayOfWeek == restartSettings.WeekDay &&
                       now.Hour == restartSettings.Hour &&
                       now.Minute == restartSettings.Minute;
 
-                if (shouldRestart && now.Date != restartSettings.LastRestartDate.Date)
+                if (shouldRestart && now.Date != restartSettings.LastResDt.Date)
                 {
                     await RestartServer();
                 }
+            }
+        }
+
+        private DateTime Nxres(DateTime now)
+        {
+            if (restartSettings.IsDaily)
+            {
+                return new DateTime(now.Year, now.Month, now.Day, restartSettings.Hour, restartSettings.Minute, 0)
+                    .AddDays(now.TimeOfDay >= new TimeSpan(restartSettings.Hour, restartSettings.Minute, 0) ? 1 : 0);
+            }
+            else
+            {
+                int daysUntilNextRestart = ((int)restartSettings.WeekDay - (int)now.DayOfWeek + 7) % 7;
+                return new DateTime(now.Year, now.Month, now.Day, restartSettings.Hour, restartSettings.Minute, 0)
+                    .AddDays(daysUntilNextRestart);
+            }
+        }
+
+        private async Task ChkAnn(TimeSpan timeUntilRestart)
+        {
+            int minutesUntilRestart = (int)Math.Ceiling(timeUntilRestart.TotalMinutes);
+
+            if (restartSettings.EnableAnn &&
+                minutesUntilRestart <= restartSettings.AnnSrtMin &&
+                restartSettings.AnnInt.Contains(minutesUntilRestart) &&
+                (DateTime.Now - lastAnnouncementTime).TotalMinutes >= 1)
+            {
+                await SResAnn(minutesUntilRestart);
+                lastAnnouncementTime = DateTime.Now;
+            }
+        }
+
+
+        private async Task SResAnn(int minutesUntilRestart)
+        {
+            if (serverProcess != null && !serverProcess.HasExited)
+            {
+                string message = $"Server will restart in {minutesUntilRestart} minute(s).";
+                await Task.Run(() => serverProcess.StandardInput.WriteLine($"/announce {message}"));
             }
         }
 
@@ -913,7 +966,8 @@ namespace VsServerConsoleThingy
         {
             await StpSrvAsync();
             BtnStrtSrvClk(null, null);
-            restartSettings.LastRestartDate = DateTime.Now;
+            restartSettings.LastResDt = DateTime.Now;
+            lastAnnouncementTime = DateTime.MinValue;
             SvResSet();
         }
 
@@ -921,11 +975,15 @@ namespace VsServerConsoleThingy
         {
             if (lstAnnouncements != null)
             {
-                lstAnnouncements.ItemsSource = new ObservableCollection<string>(
-                    announcements.Select(a => $"{a.Hour:D2}:{a.Minute:D2} - {a.Message}")
-                );
+                Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    lstAnnouncements.ItemsSource = new ObservableCollection<string>(
+                        announcements.Select(a => $"{a.Hour:D2}:{a.Minute:D2} - {a.Message}")
+                    );
+                });
             }
         }
+
 
         private async void BtnAnnClick(object? sender, RoutedEventArgs e)
         {
@@ -956,9 +1014,12 @@ namespace VsServerConsoleThingy
         public int Hour { get; set; }
         public int Minute { get; set; }
         public DayOfWeek WeekDay { get; set; }
-        public bool StartAutomatically { get; set; } = true;
-        public DateTime LastRestartDate { get; set; }
-        public bool UseRichTextBox { get; set; } = false;
+        public bool Auto { get; set; } = true;
+        public DateTime LastResDt { get; set; }
+        public bool RchTxt { get; set; } = false;
+        public bool EnableAnn { get; set; } = true;
+        public int AnnSrtMin { get; set; } = 15;
+        public List<int> AnnInt { get; set; } = [15, 10, 5, 1];
 
     }
 
@@ -988,11 +1049,11 @@ namespace VsServerConsoleThingy
             Title = "Path Settings";
             Width = 800;
             Height = 250;
-            vsPaths = new VSPths();
+            vsPaths = new VSPths(new ServerManagerConfig());
 
-            InstPath = new TextBox { Margin = new Thickness(5), Text = vsPaths.InstPth ?? "" };
-            ExecPath = new TextBox { Margin = new Thickness(5), Text = vsPaths.ExecPth ?? "" };
-            AnnConfPath = new TextBox { Margin = new Thickness(5), Text = vsPaths.AnnConfPth ?? MainWindow.ConfigPath ?? "" };
+            InstPath = new TextBox { Margin = new Thickness(5), Text = vsPaths.InstPth ?? string.Empty };
+            ExecPath = new TextBox { Margin = new Thickness(5), Text = vsPaths.ExecPth ?? string.Empty };
+            AnnConfPath = new TextBox { Margin = new Thickness(5), Text = MainWindow.ConfigPath ?? string.Empty };
 
             var grid = new Grid
             {
@@ -1015,7 +1076,7 @@ namespace VsServerConsoleThingy
             Grid.SetRow(grid.Children[^1], 0);
             Grid.SetColumn(grid.Children[^1], 0);
 
-            InstPath = new TextBox { Margin = new Thickness(5), Text = vsPaths.InstPth ?? "" };
+            InstPath = new TextBox { Margin = new Thickness(5), Text = vsPaths.InstPth ?? string.Empty };
             grid.Children.Add(InstPath);
             Grid.SetRow(grid.Children[^1], 0);
             Grid.SetColumn(grid.Children[^1], 1);
@@ -1030,7 +1091,7 @@ namespace VsServerConsoleThingy
             Grid.SetRow(grid.Children[^1], 1);
             Grid.SetColumn(grid.Children[^1], 0);
 
-            ExecPath = new TextBox { Margin = new Thickness(5), Text = vsPaths.ExecPth ?? "" };
+            ExecPath = new TextBox { Margin = new Thickness(5), Text = vsPaths.ExecPth ?? string.Empty };
             grid.Children.Add(ExecPath);
             Grid.SetRow(grid.Children[^1], 1);
             Grid.SetColumn(grid.Children[^1], 1);
@@ -1045,7 +1106,7 @@ namespace VsServerConsoleThingy
             Grid.SetRow(grid.Children[^1], 2);
             Grid.SetColumn(grid.Children[^1], 0);
 
-            AnnConfPath = new TextBox { Margin = new Thickness(5), Text = MainWindow.ConfigPath ?? "" };
+            AnnConfPath = new TextBox { Margin = new Thickness(5), Text = MainWindow.ConfigPath ?? string.Empty };
             grid.Children.Add(AnnConfPath);
             Grid.SetRow(grid.Children[^1], 2);
             Grid.SetColumn(grid.Children[^1], 1);
@@ -1145,4 +1206,126 @@ namespace VsServerConsoleThingy
             return FilRes.Count > 0 ? FilRes[0].Path.LocalPath : null;
         }
     }
+    public class ResAnnWin : Window
+    {
+        private readonly CheckBox EnableAnn;
+        private readonly NumericUpDown AnnMinSel;
+        private readonly TextBox AnnMinTxt;
+        private readonly Button SaveButton;
+        private readonly ResSet restartSettings;
+
+        public ResAnnWin(ResSet restartSettings)
+        {
+            this.restartSettings = restartSettings;
+            Title = "Restart Announcements";
+            Width = 500;
+            Height = 380;
+
+            var grid = new Grid
+            {
+                Margin = new Thickness(20),
+                RowDefinitions =
+            {
+                new RowDefinition { Height = GridLength.Auto },
+                new RowDefinition { Height = GridLength.Auto },
+                new RowDefinition { Height = GridLength.Auto },
+                new RowDefinition { Height = GridLength.Auto },
+                new RowDefinition { Height = GridLength.Auto },
+                new RowDefinition { Height = GridLength.Auto },
+                new RowDefinition { Height = GridLength.Auto }
+            }
+            };
+
+            EnableAnn = new CheckBox
+            {
+                Content = "Enable Announcements",
+                IsChecked = restartSettings.EnableAnn,
+                FontSize = 16,
+                Margin = new Thickness(0, 0, 0, 20)
+            };
+            grid.Children.Add(EnableAnn);
+            Grid.SetRow(EnableAnn, 0);
+
+            grid.Children.Add(new TextBlock
+            {
+                Text = "Minutes before restart to start announcements:",
+                FontSize = 14,
+                Margin = new Thickness(0, 0, 0, 5)
+            });
+            Grid.SetRow(grid.Children[^1], 1);
+
+            AnnMinSel = new NumericUpDown
+            {
+                Minimum = 1,
+                Maximum = 60,
+                Value = restartSettings.AnnSrtMin,
+                Width = 150,
+                Height = 30,
+                FontSize = 14,
+                Margin = new Thickness(0, 0, 0, 20),
+                HorizontalAlignment = HorizontalAlignment.Left
+            };
+            grid.Children.Add(AnnMinSel);
+            Grid.SetRow(AnnMinSel, 2);
+
+            grid.Children.Add(new TextBlock
+            {
+                Text = "Announcement intervals (comma-separated minutes):",
+                FontSize = 14,
+                Margin = new Thickness(0, 0, 0, 5)
+            });
+            Grid.SetRow(grid.Children[^1], 3);
+
+            AnnMinTxt = new TextBox
+            {
+                Text = string.Join(", ", restartSettings.AnnInt),
+                FontSize = 14,
+                Height = 30,
+                Margin = new Thickness(0, 0, 0, 20)
+            };
+            grid.Children.Add(AnnMinTxt);
+            Grid.SetRow(AnnMinTxt, 4);
+
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+            SaveButton = new Button
+            {
+                Content = "Save",
+                FontSize = 16,
+                Padding = new Thickness(20, 10),
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Bottom,
+                Margin = new Thickness(0, 20, 0, 0)
+            };
+            SaveButton.Click += SvBtnClk;
+            grid.Children.Add(SaveButton);
+            Grid.SetRow(SaveButton, 6);
+
+            Content = grid;
+        }
+
+        public void SetOwner(Window owner)
+        {
+            Owner = owner;
+        }
+
+        public void SaveSettings()
+        {
+            restartSettings.EnableAnn = EnableAnn.IsChecked ?? false;
+            restartSettings.AnnSrtMin = (int)(AnnMinSel.Value ?? 0);
+            restartSettings.AnnInt = AnnMinTxt.Text?
+                .Split(',')
+                .Select(s => int.TryParse(s.Trim(), out int result) ? result : -1)
+                .Where(i => i > 0)
+                .OrderByDescending(i => i)
+                .ToList() ?? [];
+        }
+
+        private void SvBtnClk(object? sender, RoutedEventArgs e)
+        {
+            SaveSettings();
+            Close();
+        }
+    }
+
 }
