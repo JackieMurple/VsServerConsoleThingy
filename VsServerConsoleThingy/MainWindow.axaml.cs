@@ -27,6 +27,8 @@ namespace VsServerConsoleThingy
         public string ConfigPath { get; set; } = string.Empty;
         public ResSet RestartSettings { get; set; } = new();
         public List<Announcement> Announcements { get; set; } = [];
+        public string InstallationPath { get; set; } = string.Empty;
+        public string ExecutablePath { get; set; } = string.Empty;
         public HashSet<string> TotalUniquePlayers { get; set; } = [];
         public HashSet<string> WeeklyUniquePlayers { get; set; } = [];
         public DateTime LastWeekReset { get; set; } = DateTime.MinValue;
@@ -42,7 +44,6 @@ namespace VsServerConsoleThingy
         private VSPths? vsPaths;
         private ServerManagerConfig config = new();
         public ServerManagerConfig Config => config;
-
         public static string GetAppRootDirectory()
         {
             return AppDomain.CurrentDomain.BaseDirectory;
@@ -64,6 +65,7 @@ namespace VsServerConsoleThingy
             }
         }
 
+
         private static string _configPath = Path.Combine(
                                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                                 "vintagestorydata",
@@ -71,7 +73,6 @@ namespace VsServerConsoleThingy
                                 "AnnouncerConfig.json");
 
         private readonly ResSet restartSettings = new();
-
         private readonly string restartSettingsPath = Path.Combine(
             GetAppRootDirectory(),
             "ResSet.json");
@@ -85,18 +86,23 @@ namespace VsServerConsoleThingy
         private const int MAX_CONSOLE_LINES = 1000;
 
 
-        private HashSet<string> totalUniquePlayers = [];
+        private readonly HashSet<string> totalUniquePlayers = [];
         private readonly HashSet<string> weeklyUniquePlayers = [];
-        private DateTime lastWeekReset = DateTime.MinValue;
+        private readonly DateTime lastWeekReset = DateTime.MinValue;
         private DateTime lastAnnouncementTime = DateTime.MinValue;
 
         private bool AutoSaveEnabled => AutoSave?.IsChecked == true;
 
         public MainWindow()
         {
-            LoadConfig();
-            LoadConfigPath();
             InitializeComponent();
+            LoadConfig();
+            ConfigPath = config.ConfigPath;
+            LdAnn2();
+            LdResSet();
+            ConfigPath = restartSettings.ConfigPath;
+            
+            StrtParam();
             DataContext = this;
             _ = InitAsyc();
             txtConsole = this.FindControl<Control>("_txtConsole");
@@ -109,18 +115,13 @@ namespace VsServerConsoleThingy
             {
                 richTextBox.Padding = new Thickness(0);
             }
-            else
-            {
-                Debug.WriteLine("_txtConsole not found or is not a supported control type!");
-            }
 
             DataContext = this;
 
             DayWeek.ItemsSource = new ObservableCollection<string>(Enum.GetNames(typeof(DayOfWeek)));
-            LdResSet();
             StartResTime();
             Consoleswap(true);
-
+            txtStrtParam.TextChanged += TxtStrtParam_TextChanged;
             btnStartServer.Click += BtnStrtSrvClk;
             btnStopServer.Click += BtnStpSrv;
             btnAddAnnouncement.Click += BtnAnnClick;
@@ -139,9 +140,7 @@ namespace VsServerConsoleThingy
             AdminCheck.Click += TxtBx;
             Consoleswap(restartSettings.RchTxt);
             ConfigPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "vintagestorydata", "ModConfig", "AnnouncerConfig.json");
-            LdAnn2();
             LoadPlayerCounts();
-            LoadConfig();
             BackupNum.Text = config.MaxBackups.ToString();
             BackupNum.LostFocus += BackupNum_LostFocus;
         }
@@ -149,6 +148,7 @@ namespace VsServerConsoleThingy
         public async void ConfPathabcdefg(string newPath)
         {
             ConfigPath = newPath;
+            config.ConfigPath = newPath;
             await SaveConfig();
             await LdAnn();
         }
@@ -166,6 +166,41 @@ namespace VsServerConsoleThingy
             }
         }
 
+        private void StrtParam()
+        {
+            txtStrtParam = this.FindControl<TextBox>("txtStrtParam");
+            if (txtStrtParam != null)
+            {
+                txtStrtParam.Watermark = "Enter startup parameters";
+                txtStrtParam.Margin = new Thickness(5);
+                txtStrtParam.Text = restartSettings.StartupParameters;
+                txtStrtParam.LostFocus += TxtStrtParam_Focus;
+                txtStrtParam.TextChanged += TxtStrtParam_TextChanged;
+            }
+            else
+            {
+                Debug.WriteLine("txtStrtParam not found");
+            }
+        }
+
+        private void TxtStrtParam_TextChanged(object? sender, TextChangedEventArgs e)
+        {
+            if (txtStrtParam != null)
+            {
+                restartSettings.StartupParameters = txtStrtParam.Text ?? string.Empty;
+                SvResSet();
+            }
+        }
+
+        private void TxtStrtParam_Focus(object? sender, RoutedEventArgs e)
+        {
+            if (txtStrtParam != null)
+            {
+                restartSettings.StartupParameters = txtStrtParam.Text ?? string.Empty;
+                SvResSet();
+            }
+        }
+
         private void LoadConfig()
         {
             if (File.Exists(ServerManagerConfigPath))
@@ -173,31 +208,35 @@ namespace VsServerConsoleThingy
                 try
                 {
                     string json = File.ReadAllText(ServerManagerConfigPath);
-                    Debug.WriteLine($"Config file contents: {json}");
                     config = JsonSerializer.Deserialize<ServerManagerConfig>(json, jsonOptions) ?? new ServerManagerConfig();
-                }
-                catch (JsonException)
-                {
-                    var fileContent = File.ReadAllText(ServerManagerConfigPath);
-                    string fileStart = fileContent[..Math.Min(100, fileContent.Length)];
-                    config = new ServerManagerConfig();
+                    if (!string.IsNullOrEmpty(config.ConfigPath))
+                    {
+                        ConfigPath = config.ConfigPath;
+                    }
+                    else
+                    {
+                        Debug.WriteLine("ConfigPath is empty in loaded config");
+                    }
                 }
                 catch (Exception ex)
                 {
-                    Debug.WriteLine($"Unexpected error loading config: {ex.Message}");
+                    Debug.WriteLine($"Error loading config: {ex.Message}");
                     config = new ServerManagerConfig();
                 }
             }
             else
             {
+                Debug.WriteLine("Config file not found, creating new config");
                 config = new ServerManagerConfig();
             }
         }
 
         public async Task SaveConfig()
         {
+            config.ConfigPath = ConfigPath;
             string json = JsonSerializer.Serialize(config, jsonOptions);
-            await File.WriteAllTextAsync(ServerManagerConfigPath, json).ConfigureAwait(false);
+            await File.WriteAllTextAsync(ServerManagerConfigPath, json);
+            Debug.WriteLine($"Saved ConfigPath: {config.ConfigPath}");
         }
 
         private async void PthSetClk(object _sender, RoutedEventArgs _e)
@@ -261,54 +300,11 @@ namespace VsServerConsoleThingy
 
         private void LoadPlayerCounts()
         {
-            string countsPath = Path.Combine(GetAppRootDirectory(), "player_counts.json");
+            restartSettings.TotalUniquePlayers = restartSettings.TotalUniquePlayers ?? [];
+            restartSettings.WeeklyUniquePlayers = restartSettings.WeeklyUniquePlayers ?? [];
+            restartSettings.LastWeekReset = restartSettings.LastWeekReset;
 
-            if (File.Exists(countsPath))
-            {
-                string jsonContent = File.ReadAllText(countsPath);
-                if (!string.IsNullOrEmpty(jsonContent))
-                {
-                    try
-                    {
-                        var data = JsonSerializer.Deserialize<JsonElement>(jsonContent, jsonOptions);
-
-                        if (data.TryGetProperty("TotalUniquePlayers", out JsonElement totalUniquePlayers))
-                        {
-                            this.totalUniquePlayers = new HashSet<string>(totalUniquePlayers.EnumerateArray()
-                                .Select(x => x.GetString() ?? string.Empty));
-                        }
-                        else
-                        {
-                            this.totalUniquePlayers = [];
-                        }
-
-                        if (data.TryGetProperty("LastWeekReset", out JsonElement lastWeekReset))
-                        {
-                            this.lastWeekReset = lastWeekReset.GetDateTime();
-                        }
-                        else
-                        {
-                            this.lastWeekReset = DateTime.MinValue;
-                        }
-                    }
-                    catch (JsonException ex)
-                    {
-                        Console.WriteLine($"Error deserializing JSON: {ex.Message}");
-                        this.totalUniquePlayers = [];
-                        this.lastWeekReset = DateTime.MinValue;
-                    }
-                }
-                else
-                {
-                    this.totalUniquePlayers = [];
-                    this.lastWeekReset = DateTime.MinValue;
-                }
-            }
-            else
-            {
-                this.totalUniquePlayers = [];
-                this.lastWeekReset = DateTime.MinValue;
-            }
+            UpdatePlayerCounts(restartSettings.TotalUniquePlayers.Count, restartSettings.WeeklyUniquePlayers.Count);
         }
 
 
@@ -321,9 +317,17 @@ namespace VsServerConsoleThingy
         private async Task InitAsyc()
         {
             LoadConfig();
+            ConfigPath = config.ConfigPath;
             vsPaths = new VSPths(config);
             await InitVSPath();
-            await LdAnn();
+            if (!string.IsNullOrEmpty(ConfigPath))
+            {
+                await LdAnn();
+            }
+            else
+            {
+                await SelDialog(PthSelTyp.AnnConf);
+            }
             StartServer();
         }
         private void TxtBx(object? sender, RoutedEventArgs e)
@@ -339,15 +343,50 @@ namespace VsServerConsoleThingy
         {
             try
             {
+                await TxtXChng("Checking VS Paths...\n", Colors.White);
+
+                await LdAnn();
+
+                await TxtXChng($"Config InstallationPath: {config.InstallationPath}\n", Colors.Yellow);
+                await TxtXChng($"Config ExecutablePath: {config.ExecutablePath}\n", Colors.Yellow);
+
                 vsPaths = new VSPths(config);
+
+                await TxtXChng($"VSPths InstPth: {vsPaths.InstPth}\n", Colors.Yellow);
+                await TxtXChng($"VSPths ExecPth: {vsPaths.ExecPth}\n", Colors.Yellow);
+
+                if (!string.IsNullOrEmpty(config.InstallationPath) && !string.IsNullOrEmpty(config.ExecutablePath))
+                {
+                    await TxtXChng("Paths found in config, setting them...\n", Colors.Green);
+                    vsPaths.StPth(config.InstallationPath, config.ExecutablePath, config.ConfigPath);
+                }
+                else if (string.IsNullOrEmpty(vsPaths.InstPth) || string.IsNullOrEmpty(vsPaths.ExecPth))
+                {
+                    await TxtXChng("Paths missing, prompting for selection...\n", Colors.Orange);
+                    await SelDialog(PthSelTyp.VSInst);
+
+                    if (!string.IsNullOrEmpty(vsPaths.InstPth) && !string.IsNullOrEmpty(vsPaths.ExecPth))
+                    {
+                        await TxtXChng("New paths selected, updating config...\n", Colors.Green);
+                        config.InstallationPath = vsPaths.InstPth;
+                        config.ExecutablePath = vsPaths.ExecPth;
+                        await SaveConfig();
+                    }
+                }
+
+                await TxtXChng($"Final VSPths InstPth: {vsPaths.InstPth}\n", Colors.Yellow);
+                await TxtXChng($"Final VSPths ExecPth: {vsPaths.ExecPth}\n", Colors.Yellow);
+
                 if (string.IsNullOrEmpty(vsPaths.InstPth) || string.IsNullOrEmpty(vsPaths.ExecPth))
                 {
-                    await SelDialog();
+                    throw new Exception("Vintage Story paths are not set.");
                 }
+
+                await TxtXChng("Paths verified.\n", Colors.White);
             }
             catch (Exception ex)
             {
-                await TxtXChng($"Error initializing VSPths: {ex.Message}" + Environment.NewLine, Colors.Red);
+                await TxtXChng($"Error initializing VSPths: {ex.Message}\n", Colors.Red);
                 vsPaths = null;
             }
         }
@@ -357,43 +396,50 @@ namespace VsServerConsoleThingy
             VSInst,
             AnnConf
         }
-        private async Task SelDialog()
+        private async Task SelDialog(PthSelTyp type)
         {
-            var MsgBx = MessageBoxManager.GetMessageBoxStandard(
-                new MessageBoxStandardParams
-                {
-                    ContentTitle = "Vintage Story Server Executable Not Found",
-                    ContentMessage = "The Vintage Story Server executable couldn't be found automatically. Would you like to select the installation folder manually?",
-                    ButtonDefinitions = ButtonEnum.YesNo
-                });
-            var Res = await MsgBx.ShowAsync();
-            if (Res == ButtonResult.Yes)
+            if (type == PthSelTyp.AnnConf && !string.IsNullOrEmpty(ConfigPath))
             {
-                try
-                {
-                    vsPaths = new VSPths(config);
-
-                    await vsPaths.ManPth();
-                    if (string.IsNullOrEmpty(vsPaths.InstPth) || string.IsNullOrEmpty(vsPaths.ExecPth))
-                    {
-                        throw new Exception("Invalid Vintage Story Server installation folder selected.");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    await MessageBoxManager.GetMessageBoxStandard(
-                        new MessageBoxStandardParams
-                        {
-                            ContentTitle = "Error - Vintage Story Server Executable",
-                            ContentMessage = ex.Message,
-                            ButtonDefinitions = ButtonEnum.Ok
-                        }).ShowAsync();
-                    vsPaths = null;
-                }
+                return;
             }
             else
             {
-                vsPaths = null;
+                var MsgBx = MessageBoxManager.GetMessageBoxStandard(
+                    new MessageBoxStandardParams
+                    {
+                        ContentTitle = "Vintage Story Server Executable Not Found",
+                        ContentMessage = "The Vintage Story Server executable couldn't be found automatically. Would you like to select the installation folder manually?",
+                        ButtonDefinitions = ButtonEnum.YesNo
+                    });
+                var Res = await MsgBx.ShowAsync();
+                if (Res == ButtonResult.Yes)
+                {
+                    try
+                    {
+                        vsPaths = new VSPths(config);
+
+                        await vsPaths.ManPth();
+                        if (string.IsNullOrEmpty(vsPaths.InstPth) || string.IsNullOrEmpty(vsPaths.ExecPth))
+                        {
+                            throw new Exception("Invalid Vintage Story Server installation folder selected.");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        await MessageBoxManager.GetMessageBoxStandard(
+                            new MessageBoxStandardParams
+                            {
+                                ContentTitle = "Error - Vintage Story Server Executable",
+                                ContentMessage = ex.Message,
+                                ButtonDefinitions = ButtonEnum.Ok
+                            }).ShowAsync();
+                        vsPaths = null;
+                    }
+                }
+                else
+                {
+                    vsPaths = null;
+                }
             }
         }
 
@@ -532,24 +578,16 @@ namespace VsServerConsoleThingy
                     {
                         serverProcess.StandardInput.WriteLine("/genbackup");
                         await TxtXChng("Generating backup..." + Environment.NewLine, Colors.Green);
-                        await Task.Delay(5000);
+                        await WtBack();
                     }
 
                     serverProcess.StandardInput.WriteLine("/stop");
                     await TxtXChng("stopping..." + Environment.NewLine, Colors.White);
-                    bool exited = await Task.Run(() => serverProcess.WaitForExit(10000));
-                    if (exited)
+                    await serverProcess.WaitForExitAsync();
+                    await TxtXChng("Server has stopped" + Environment.NewLine, Colors.White);
+                    if (Backup.IsChecked == true)
                     {
-                        await TxtXChng("Server has stopped" + Environment.NewLine, Colors.White);
-                        if (Backup.IsChecked == true)
-                        {
-                            await ManageBackups();
-                        }
-                    }
-                    else
-                    {
-                        await TxtXChng("Server did not stop within the expected time. Forcing shutdown..." + Environment.NewLine, Colors.Red);
-                        serverProcess.Kill();
+                        await ManBack();
                     }
                 }
                 catch (Exception ex)
@@ -567,7 +605,25 @@ namespace VsServerConsoleThingy
             }
         }
 
-        private async Task ManageBackups()
+        private async Task WtBack()
+        {
+            var backupCompletionTask = Task.Run(async () =>
+            {
+                while (true)
+                {
+                    string? output = serverProcess != null ? await serverProcess.StandardOutput.ReadLineAsync() : null;
+                    if (output != null && output.Contains("[Server Notification] Backup Complete!"))
+                    {
+                        return;
+                    }
+                    await Task.Delay(100);
+                }
+            });
+
+            await Task.WhenAny(backupCompletionTask, Task.Delay(TimeSpan.FromMinutes(5)));
+        }
+
+        private async Task ManBack()
         {
             int maxBackups = config.MaxBackups;
             if (maxBackups > 0)
@@ -612,13 +668,10 @@ namespace VsServerConsoleThingy
             {
                 e.Cancel = true;
                 await StpSrv();
-                SavePlayerCounts();
-                Close();
             }
-            else
-            {
-                SavePlayerCounts();
-            }
+            SavePlayerCounts();
+            await SaveConfig();
+            Close();
         }
 
         private void StartServer()
@@ -655,20 +708,29 @@ namespace VsServerConsoleThingy
         {
             try
             {
-                if (!File.Exists(ConfigPath))
+                if (string.IsNullOrEmpty(ConfigPath))
                 {
+                    Debug.WriteLine("ConfigPath is empty");
                     string? newPath = await AnnConfDir();
                     if (newPath != null)
                     {
                         ConfigPath = newPath;
+                        config.ConfigPath = newPath;
+                        await SaveConfig();
                     }
                     else
                     {
-                        announcements.Clear();
-                        announcements.Add(new Announcement { Hour = 6, Minute = 0, Message = "placeholder announcement" });
-                        await SvAnn();
-                        return;
+                        throw new Exception("No config path selected");
                     }
+                }
+
+                if (!File.Exists(ConfigPath))
+                {
+                    Debug.WriteLine($"Config file not found at {ConfigPath}, creating default");
+                    announcements.Clear();
+                    announcements.Add(new Announcement { Hour = 6, Minute = 0, Message = "placeholder announcement" });
+                    await SvAnn();
+                    return;
                 }
 
                 string json = await File.ReadAllTextAsync(ConfigPath);
@@ -807,6 +869,7 @@ namespace VsServerConsoleThingy
                         RedirectStandardError = true,
                         RedirectStandardInput = true,
                         CreateNoWindow = true,
+                        Arguments = txtStrtParam.Text
                     }
                 };
                 serverProcess.OutputDataReceived += SrvPrcOutDat;
@@ -814,7 +877,7 @@ namespace VsServerConsoleThingy
                 serverProcess.Start();
                 serverProcess.BeginOutputReadLine();
                 serverProcess.BeginErrorReadLine();
-                await TxtXChng("Server started." + Environment.NewLine, Colors.White);
+                await TxtXChng($"Server started with arguments: {restartSettings.StartupParameters}" + Environment.NewLine, Colors.White);
             }
         }
 
@@ -906,8 +969,11 @@ namespace VsServerConsoleThingy
         private void SvResSet()
         {
             restartSettings.RchTxt = AdminCheck.IsChecked ?? false;
+            restartSettings.StartupParameters = txtStrtParam.Text ?? string.Empty;
+
             string json = JsonSerializer.Serialize(restartSettings, jsonOptions);
             File.WriteAllText(restartSettingsPath, json);
+
             restartSettings.EnableAnn = restartSettings.EnableAnn;
             restartSettings.AnnSrtMin = restartSettings.AnnSrtMin;
             restartSettings.AnnInt = restartSettings.AnnInt;
@@ -929,6 +995,18 @@ namespace VsServerConsoleThingy
                     restartSettings.Auto = loadedSettings.Auto;
                     restartSettings.LastResDt = loadedSettings.LastResDt;
                     restartSettings.RchTxt = loadedSettings.RchTxt;
+                    restartSettings.EnableAnn = loadedSettings.EnableAnn;
+                    restartSettings.AnnSrtMin = loadedSettings.AnnSrtMin;
+                    restartSettings.AnnInt = loadedSettings.AnnInt;
+                    restartSettings.StartupParameters = loadedSettings.StartupParameters;
+                    restartSettings.ConfigPath = loadedSettings.ConfigPath;
+                    restartSettings.Announcements = loadedSettings.Announcements;
+                    restartSettings.TotalUniquePlayers = loadedSettings.TotalUniquePlayers;
+                    restartSettings.WeeklyUniquePlayers = loadedSettings.WeeklyUniquePlayers;
+                    restartSettings.LastWeekReset = loadedSettings.LastWeekReset;
+                    restartSettings.BackupFolderPath = loadedSettings.BackupFolderPath;
+                    restartSettings.MaxBackups = loadedSettings.MaxBackups;
+                    restartSettings.UseRichTextBox = loadedSettings.UseRichTextBox;
                 }
             }
             else
@@ -939,26 +1017,46 @@ namespace VsServerConsoleThingy
                 restartSettings.LastResDt = DateTime.MinValue;
                 restartSettings.RchTxt = false;
             }
-            ResCtrlChng();
+
+            Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                ResCtrlChng();
+            });
         }
+
+
 
         private void ResCtrlChng()
         {
-            EnableRestart.IsChecked = restartSettings.Enabled;
-            DailyRestart.IsChecked = restartSettings.IsDaily;
-            WeeklyRestart.IsChecked = !restartSettings.IsDaily;
-            AdminCheck.IsChecked = restartSettings.RchTxt;
+            if (EnableRestart != null)
+                EnableRestart.IsChecked = restartSettings.Enabled;
 
-            int validHour = Math.Min(Math.Max(restartSettings.Hour, 0), 23);
-            TimeHour.Value = validHour;
+            if (DailyRestart != null)
+                DailyRestart.IsChecked = restartSettings.IsDaily;
 
-            TimeMinute.Value = Math.Min(Math.Max(restartSettings.Minute, 0), 59);
+            if (WeeklyRestart != null)
+                WeeklyRestart.IsChecked = !restartSettings.IsDaily;
 
-            if (DayWeek.Items.Count > 0)
+            if (AdminCheck != null)
+                AdminCheck.IsChecked = restartSettings.RchTxt;
+
+            if (TimeHour != null)
+            {
+                int validHour = Math.Min(Math.Max(restartSettings.Hour, 0), 23);
+                TimeHour.Value = validHour;
+            }
+
+            if (TimeMinute != null)
+            {
+                TimeMinute.Value = Math.Min(Math.Max(restartSettings.Minute, 0), 59);
+            }
+
+            if (DayWeek != null && DayWeek.Items.Count > 0)
             {
                 DayWeek.SelectedIndex = (int)restartSettings.WeekDay;
             }
         }
+
 
         private void EnRes(object? sender, RoutedEventArgs e)
         {
@@ -1121,6 +1219,15 @@ namespace VsServerConsoleThingy
         public bool EnableAnn { get; set; } = true;
         public int AnnSrtMin { get; set; } = 15;
         public List<int> AnnInt { get; set; } = [15, 10, 5, 1];
+        public string StartupParameters { get; set; } = string.Empty;
+        public string ConfigPath { get; set; } = string.Empty;
+        public List<Announcement> Announcements { get; set; } = [];
+        public HashSet<string> TotalUniquePlayers { get; set; } = [];
+        public HashSet<string> WeeklyUniquePlayers { get; set; } = [];
+        public DateTime LastWeekReset { get; set; } = DateTime.MinValue;
+        public string BackupFolderPath { get; set; } = Path.Combine(MainWindow.GetAppRootDirectory(), "Backups");
+        public int MaxBackups { get; set; } = 5;
+        public bool UseRichTextBox { get; set; } = false;
 
     }
 
@@ -1303,7 +1410,8 @@ namespace VsServerConsoleThingy
             }
 
             vsPaths.StPth(InstPath.Text, ExecPath.Text, AnnConfPath.Text);
-            UpdateConfigPath(AnnConfPath.Text);
+            MainWindow.ConfigPath = AnnConfPath.Text;
+            mainWindow.Config.ConfigPath = AnnConfPath.Text;
             mainWindow.Config.BackupFolderPath = BackupFolderPath.Text;
             await mainWindow.SaveConfig();
             Close();

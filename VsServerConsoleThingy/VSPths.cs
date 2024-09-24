@@ -20,9 +20,13 @@ namespace VsServerConsoleThingy
         {
             this.config = config;
             LdPth();
-            if (string.IsNullOrEmpty(InstPth) || string.IsNullOrEmpty(ExecPth))
+            if (string.IsNullOrEmpty(InstPth) || string.IsNullOrEmpty(ExecPth) || string.IsNullOrEmpty(AnnConfPth))
             {
                 DetPth();
+            }
+            if (!string.IsNullOrEmpty(config.ConfigPath))
+            {
+                AnnConfPth = config.ConfigPath;
             }
             ValPth();
         }

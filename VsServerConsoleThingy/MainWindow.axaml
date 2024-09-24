@@ -203,7 +203,8 @@
 								>
 							</TextBox>
 
-							<Button x:Name="PnBtn"
+							<Button 
+								x:Name="PnBtn"
 									Content="Settings"
 									Width="100"
 									Height="50"
@@ -211,6 +212,13 @@
 									HorizontalAlignment="Right"
 									Margin="40,-75,0,0"
 									Click="PnBtnClk"/>
+
+							<CheckBox
+							x:Name="Crash"
+							Content="Crash Recovery"
+							Margin="-513,20,10,10"
+							Foreground="#F7D9C4"
+							/>
 							
 						</StackPanel>
 					</StackPanel>
@@ -395,6 +403,7 @@
 								Background="#FFB6C1"
 								Margin="0,0,0,10"
 								Click="ResAnnClk"/>
+						<TextBox Name="txtStrtParam" Watermark="Startup parameters" Margin="5"/>
 					</StackPanel>
 				</Border>
 			</SplitView.Pane>
